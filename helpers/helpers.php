@@ -59,6 +59,66 @@ class OtpHelper {
         $db->query("UPDATE otp_store SET is_used=1 WHERE id=?", 'i', $row['id']);
         return true;
     }
+
+    // ── Send OTP via Fast2SMS (Indian SMS) ──
+    public static function sendSMS(string $mobile, string $otp): bool {
+        if (!FAST2SMS_API_KEY) return false; // key not configured
+        $url  = 'https://www.fast2sms.com/dev/bulkV2';
+        $data = http_build_query([
+            'authorization' => FAST2SMS_API_KEY,
+            'variables_values' => $otp,
+            'route'            => 'otp',
+            'numbers'          => $mobile,
+        ]);
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $data,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_HTTPHEADER     => ['cache-control: no-cache'],
+        ]);
+        $res  = curl_exec($ch);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        if ($err) return false;
+        $json = json_decode($res, true);
+        return isset($json['return']) && $json['return'] === true;
+    }
+
+    // ── Send OTP via Gmail SMTP (pure PHP, no PHPMailer) ──
+    public static function sendEmail(string $toEmail, string $otp): bool {
+        if (!SMTP_USER || !SMTP_PASS) return false; // credentials not configured
+        $subject = 'Your Drithi Agro OTP: ' . $otp;
+        $message = "Your OTP for Drithi Agro is: <b>$otp</b><br>Valid for " . OTP_EXPIRY_MINUTES . " minutes.<br><br>Do not share this OTP with anyone.";
+        $headers = implode("\r\n", [
+            'MIME-Version: 1.0',
+            'Content-type: text/html; charset=utf-8',
+            'From: ' . SMTP_FROM_NAME . ' <' . SMTP_USER . '>',
+            'Reply-To: ' . SMTP_USER,
+        ]);
+        // Use sendmail via SMTP socket
+        $fp = @fsockopen('ssl://' . SMTP_HOST, 465, $errno, $errstr, 10);
+        if (!$fp) {
+            // Fallback: try PHP mail()
+            return mail($toEmail, $subject, $message, $headers);
+        }
+        $recv = fgets($fp, 515);
+        fwrite($fp, "EHLO localhost\r\n");      fgets($fp, 515);
+        fwrite($fp, "AUTH LOGIN\r\n");           fgets($fp, 515);
+        fwrite($fp, base64_encode(SMTP_USER) . "\r\n"); fgets($fp, 515);
+        fwrite($fp, base64_encode(SMTP_PASS) . "\r\n"); $res = fgets($fp, 515);
+        if (strpos($res, '235') === false) { fclose($fp); return false; }
+        fwrite($fp, "MAIL FROM:<" . SMTP_USER . ">\r\n");  fgets($fp, 515);
+        fwrite($fp, "RCPT TO:<$toEmail>\r\n");              fgets($fp, 515);
+        fwrite($fp, "DATA\r\n");                            fgets($fp, 515);
+        fwrite($fp, "Subject: $subject\r\nTo: $toEmail\r\n$headers\r\n\r\n$message\r\n.\r\n");
+        $res = fgets($fp, 515);
+        fwrite($fp, "QUIT\r\n");
+        fclose($fp);
+        return strpos($res, '250') !== false;
+    }
 }
 
 class Validator {
