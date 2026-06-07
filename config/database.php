@@ -11,7 +11,7 @@ define('DB_NAME', 'drithi_agro');
 define('JWT_SECRET', 'drithi-agro-jwt-secret-2025-change-in-production');
 define('JWT_EXPIRY', 86400); // 24 hours
 
-define('APP_URL',     'http://localhost/drithi-agro/backend');
+define('APP_URL',     'http://localhost:8000');
 define('UPLOAD_PATH', __DIR__ . '/../uploads/');
 define('UPLOAD_URL',  APP_URL . '/uploads/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
