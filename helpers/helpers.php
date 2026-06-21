@@ -38,25 +38,46 @@ class Response {
 }
 
 class OtpHelper {
+    private static string $cacheFile = '';
+
+    private static function cacheFile(): string {
+        if (!self::$cacheFile) self::$cacheFile = sys_get_temp_dir() . '/drithi_otp_cache.json';
+        return self::$cacheFile;
+    }
+
+    private static function loadCache(): array {
+        $f = self::cacheFile();
+        return file_exists($f) ? (json_decode(file_get_contents($f), true) ?? []) : [];
+    }
+
+    private static function saveCache(array $data): void {
+        file_put_contents(self::cacheFile(), json_encode($data));
+    }
+
+    public static function uuid(): string {
+        return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+            mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+    }
+
     public static function generate(): string {
         return str_pad((string)random_int(0, 999999), OTP_LENGTH, '0', STR_PAD_LEFT);
     }
 
-    public static function save(string $mobile, string $otp, string $purpose = 'LOGIN'): void {
-        $db = Database::getInstance();
-        $db->query("UPDATE otp_store SET is_used=1 WHERE mobile=? AND purpose=? AND is_used=0", 'ss', $mobile, $purpose);
-        $expires = date('Y-m-d H:i:s', strtotime('+' . OTP_EXPIRY_MINUTES . ' minutes'));
-        $db->query("INSERT INTO otp_store (mobile, otp_code, purpose, expires_at) VALUES (?,?,?,?)", 'ssss', $mobile, $otp, $purpose, $expires);
+    public static function save(string $input, string $otp, string $purpose = 'LOGIN'): void {
+        $cache = self::loadCache();
+        $cache[$input] = ['otp' => $otp, 'purpose' => $purpose, 'expires' => time() + OTP_EXPIRY_MINUTES * 60, 'used' => false];
+        self::saveCache($cache);
     }
 
-    public static function verify(string $mobile, string $otp): bool {
-        $db  = Database::getInstance();
-        $row = $db->fetchOne(
-            "SELECT id FROM otp_store WHERE mobile=? AND otp_code=? AND is_used=0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1",
-            'ss', $mobile, $otp
-        );
-        if (!$row) return false;
-        $db->query("UPDATE otp_store SET is_used=1 WHERE id=?", 'i', $row['id']);
+    public static function verify(string $input, string $otp): bool {
+        $cache = self::loadCache();
+        if (!isset($cache[$input])) return false;
+        $entry = $cache[$input];
+        if ($entry['used'] || $entry['expires'] < time() || $entry['otp'] !== $otp) return false;
+        $cache[$input]['used'] = true;
+        self::saveCache($cache);
         return true;
     }
 

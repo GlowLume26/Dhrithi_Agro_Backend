@@ -10,14 +10,13 @@ $action = $_GET['action'] ?? '';
 // GET /vendors — list approved vendors
 if ($method === 'GET' && !$action) {
     $vendors = $db->fetchAll(
-        "SELECT v.id, v.vendor_id_code, v.store_name, v.business_name, v.store_banner_url,
-                v.business_logo_url, v.rating, v.total_products, v.total_orders, v.city, v.state, v.is_verified
-         FROM vendors v WHERE v.status='APPROVED' ORDER BY v.rating DESC LIMIT 20"
+        "SELECT id, vendor_code, business_name, owner_name, city, state, is_verified, status
+         FROM vendors WHERE status='approved' ORDER BY created_at DESC LIMIT 20"
     );
     Response::success('Vendors fetched', $vendors);
 }
 
-// POST /vendors?action=register — vendor registration
+// POST /vendors?action=register
 if ($method === 'POST' && $action === 'register') {
     $err = Validator::required($body, ['business_name', 'owner_name', 'mobile', 'email', 'gst_number', 'pan_number', 'address', 'city', 'state', 'pincode']);
     if ($err) Response::error($err);
@@ -27,70 +26,64 @@ if ($method === 'POST' && $action === 'register') {
         Response::error('GST number already registered');
     }
 
-    $db->query("INSERT INTO users (mobile, email, role, is_active) VALUES (?,?,'VENDOR',0)", 'ss', $body['mobile'], $body['email']);
-    $userId = $db->lastInsertId();
-
+    $userId   = OtpHelper::uuid();
+    $vendorId = OtpHelper::uuid();
+    $db->query("INSERT INTO users (id,first_name,last_name,email,mobile,password_hash,role,is_active) VALUES (?,?,?,?,?,?,'vendor',FALSE)",
+        'ssssss', $userId, $body['owner_name'], '', $body['email'], $body['mobile'], password_hash(uniqid(), PASSWORD_DEFAULT));
     $db->query(
-        "INSERT INTO vendors (user_id, business_name, owner_name, mobile, email, gst_number, pan_number,
-         business_type, address, city, state, pincode, store_name, store_description)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        'isssssssssssss',
-        $userId, $body['business_name'], $body['owner_name'], $body['mobile'], $body['email'],
-        $body['gst_number'], $body['pan_number'], $body['business_type'] ?? 'SOLE_PROPRIETORSHIP',
-        $body['address'], $body['city'], $body['state'], $body['pincode'],
-        $body['store_name'] ?? $body['business_name'], $body['store_description'] ?? ''
+        "INSERT INTO vendors (id, user_id, business_name, owner_name, email, mobile, gst_number, pan_number, address, city, state, pincode, status)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
+        'ssssssssssss',
+        $vendorId, $userId, $body['business_name'], $body['owner_name'],
+        $body['email'], $body['mobile'], $body['gst_number'], $body['pan_number'],
+        $body['address'], $body['city'], $body['state'], $body['pincode']
     );
-    $vendorId = $db->lastInsertId();
 
-    $docTypes = ['aadhaar' => 'AADHAAR', 'pan' => 'PAN', 'gst' => 'GST_CERTIFICATE',
-                 'business_reg' => 'BUSINESS_REGISTRATION', 'bank' => 'BANK_PASSBOOK', 'logo' => 'BUSINESS_LOGO'];
-    foreach ($docTypes as $key => $type) {
+    foreach (['aadhaar' => 'AADHAAR', 'pan' => 'PAN', 'gst' => 'GST_CERTIFICATE', 'logo' => 'BUSINESS_LOGO'] as $key => $type) {
         if (!empty($_FILES[$key]) && $_FILES[$key]['error'] === 0) {
             try {
                 $url = FileUpload::upload($_FILES[$key], 'vendor-docs');
-                $db->query("INSERT INTO vendor_documents (vendor_id, doc_type, file_url, file_name, file_size) VALUES (?,?,?,?,?)",
-                    'isssi', $vendorId, $type, $url, $_FILES[$key]['name'], $_FILES[$key]['size']);
-                if ($type === 'BUSINESS_LOGO') {
-                    $db->query("UPDATE vendors SET business_logo_url=? WHERE id=?", 'si', $url, $vendorId);
-                }
-            } catch (Exception $e) { /* skip */ }
+                $db->query("INSERT INTO vendor_documents (id, vendor_id, document_type, document_url) VALUES (?,?,?,?)",
+                    'ssss', OtpHelper::uuid(), $vendorId, $type, $url);
+            } catch (Exception $e) {}
         }
     }
 
     Response::success('Vendor application submitted. Pending admin approval.', [
-        'application_ref' => 'VR-' . date('Y') . '-DA-' . str_pad((string)$vendorId, 4, '0', STR_PAD_LEFT)
+        'application_ref' => 'VR-' . date('Y') . '-DA-' . strtoupper(substr($vendorId, 0, 8))
     ], 201);
 }
 
-// GET /vendors?action=dashboard — vendor dashboard
+// GET /vendors?action=dashboard
 if ($method === 'GET' && $action === 'dashboard') {
     $auth   = vendorMiddleware();
-    $vendor = $db->fetchOne("SELECT * FROM vendors WHERE user_id=? AND status='APPROVED'", 'i', $auth['user_id']);
+    $vendor = $db->fetchOne("SELECT * FROM vendors WHERE user_id=? AND status='approved'", 's', $auth['user_id']);
     if (!$vendor) Response::error('Vendor not found or not approved', 403);
 
     $stats = [
-        'total_revenue'  => $db->fetchOne("SELECT COALESCE(SUM(oi.total_price),0) AS val FROM order_items oi JOIN orders o ON oi.order_id=o.id WHERE oi.vendor_id=? AND o.payment_status='PAID'", 'i', $vendor['id'])['val'],
-        'total_orders'   => $db->fetchOne("SELECT COUNT(DISTINCT order_id) AS val FROM order_items WHERE vendor_id=?", 'i', $vendor['id'])['val'],
-        'total_products' => $db->fetchOne("SELECT COUNT(*) AS val FROM products WHERE vendor_id=? AND is_active=1", 'i', $vendor['id'])['val'],
-        'avg_rating'     => $db->fetchOne("SELECT COALESCE(AVG(r.rating),0) AS val FROM reviews r JOIN products p ON r.product_id=p.id WHERE p.vendor_id=?", 'i', $vendor['id'])['val'],
-        'pending_orders' => $db->fetchOne("SELECT COUNT(*) AS val FROM order_items WHERE vendor_id=? AND item_status='PROCESSING'", 'i', $vendor['id'])['val'],
-        'low_stock'      => $db->fetchOne("SELECT COUNT(*) AS val FROM products WHERE vendor_id=? AND stock_qty<10 AND is_active=1", 'i', $vendor['id'])['val'],
+        'total_revenue'  => $db->fetchOne("SELECT COALESCE(SUM(oi.total),0) AS val FROM order_items oi JOIN orders o ON oi.order_id=o.id JOIN products p ON oi.product_id=p.id WHERE p.vendor_id=? AND o.payment_status='PAID'", 's', $vendor['id'])['val'] ?? 0,
+        'total_orders'   => $db->fetchOne("SELECT COUNT(DISTINCT oi.order_id) AS val FROM order_items oi JOIN products p ON oi.product_id=p.id WHERE p.vendor_id=?", 's', $vendor['id'])['val'],
+        'total_products' => $db->fetchOne("SELECT COUNT(*) AS val FROM products WHERE vendor_id=? AND is_active=TRUE", 's', $vendor['id'])['val'],
+        'avg_rating'     => $db->fetchOne("SELECT COALESCE(AVG(r.rating),0) AS val FROM reviews r JOIN products p ON r.product_id=p.id WHERE p.vendor_id=?", 's', $vendor['id'])['val'],
     ];
 
     $recentOrders = $db->fetchAll(
-        "SELECT oi.*, o.order_number, o.placed_at, o.payment_status FROM order_items oi
-         JOIN orders o ON oi.order_id=o.id WHERE oi.vendor_id=? ORDER BY o.placed_at DESC LIMIT 10", 'i', $vendor['id']
+        "SELECT oi.*, o.order_number, o.created_at, o.payment_status
+         FROM order_items oi JOIN orders o ON oi.order_id=o.id
+         JOIN products p ON oi.product_id=p.id
+         WHERE p.vendor_id=? ORDER BY o.created_at DESC LIMIT 10", 's', $vendor['id']
     );
     $topProducts = $db->fetchAll(
         "SELECT p.id, p.name, p.selling_price, p.stock_qty, p.sold_count,
-                (SELECT image_url FROM product_images WHERE product_id=p.id AND is_primary=1 LIMIT 1) AS image
-         FROM products p WHERE p.vendor_id=? AND p.is_active=1 ORDER BY p.sold_count DESC LIMIT 5", 'i', $vendor['id']
+                (SELECT image_url FROM product_images WHERE product_id=p.id AND is_primary=TRUE LIMIT 1) AS image
+         FROM products p WHERE p.vendor_id=? AND p.is_active=TRUE ORDER BY p.sold_count DESC LIMIT 5", 's', $vendor['id']
     );
     $monthlyRevenue = $db->fetchAll(
-        "SELECT DATE_FORMAT(o.placed_at,'%b') AS month, COALESCE(SUM(oi.total_price),0) AS revenue
-         FROM order_items oi JOIN orders o ON oi.order_id=o.id
-         WHERE oi.vendor_id=? AND o.placed_at>=DATE_SUB(NOW(), INTERVAL 6 MONTH) AND o.payment_status='PAID'
-         GROUP BY MONTH(o.placed_at), DATE_FORMAT(o.placed_at,'%b') ORDER BY MONTH(o.placed_at)", 'i', $vendor['id']
+        "SELECT TO_CHAR(o.created_at,'Mon') AS month, COALESCE(SUM(oi.total),0) AS revenue
+         FROM order_items oi JOIN orders o ON oi.order_id=o.id JOIN products p ON oi.product_id=p.id
+         WHERE p.vendor_id=? AND o.created_at >= NOW() - INTERVAL '6 months' AND o.payment_status='PAID'
+         GROUP BY DATE_TRUNC('month', o.created_at), TO_CHAR(o.created_at,'Mon')
+         ORDER BY DATE_TRUNC('month', o.created_at)", 's', $vendor['id']
     );
 
     Response::success('Dashboard data fetched', compact('stats', 'recentOrders', 'topProducts', 'monthlyRevenue'));

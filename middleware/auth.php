@@ -14,12 +14,12 @@ function authMiddleware(): array {
 
 function adminMiddleware(): array {
     $payload = authMiddleware();
-    if ($payload['role'] !== 'ADMIN') Response::error('Forbidden — admin access required', 403);
+    if ($payload['role'] !== 'admin') Response::error('Forbidden — admin access required', 403);
     return $payload;
 }
 
 function vendorMiddleware(): array {
     $payload = authMiddleware();
-    if ($payload['role'] !== 'VENDOR') Response::error('Forbidden — vendor access required', 403);
+    if (!in_array($payload['role'], ['vendor', 'admin'])) Response::error('Forbidden — vendor access required', 403);
     return $payload;
 }

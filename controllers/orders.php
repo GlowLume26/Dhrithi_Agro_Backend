@@ -6,9 +6,9 @@ $db     = Database::getInstance();
 $method = $_SERVER['REQUEST_METHOD'];
 $body   = json_decode(file_get_contents('php://input'), true) ?? [];
 $auth   = authMiddleware();
-$id     = (int)($_GET['id'] ?? 0);
+$id     = $_GET['id'] ?? '';
 
-$customer = $db->fetchOne("SELECT id FROM customers WHERE user_id=?", 'i', $auth['user_id']);
+$customer = $db->fetchOne("SELECT id FROM customers WHERE user_id=?", 's', $auth['user_id']);
 if (!$customer) Response::error('Customer not found', 404);
 
 // GET /orders — list
@@ -18,30 +18,34 @@ if ($method === 'GET' && !$id) {
     $offset = ($page - 1) * $limit;
     $status = $_GET['status'] ?? '';
 
-    $where  = 'o.customer_id=?';
-    $params = [$customer['id']];
-    $types  = 'i';
-    if ($status) { $where .= ' AND o.order_status=?'; $params[] = strtoupper($status); $types .= 's'; }
+    $where = 'o.customer_id=?'; $params = [$customer['id']];
+    if ($status) { $where .= ' AND o.order_status=?'; $params[] = strtoupper($status); }
 
     $orders = $db->fetchAll(
         "SELECT o.*, COUNT(oi.id) AS item_count FROM orders o
          LEFT JOIN order_items oi ON o.id=oi.order_id
-         WHERE $where GROUP BY o.id ORDER BY o.placed_at DESC LIMIT $limit OFFSET $offset",
-        $types, ...$params
+         WHERE $where GROUP BY o.id ORDER BY o.created_at DESC LIMIT $limit OFFSET $offset",
+        '', ...$params
     );
     foreach ($orders as &$order) {
-        $order['items'] = $db->fetchAll("SELECT * FROM order_items WHERE order_id=?", 'i', $order['id']);
+        $order['items'] = $db->fetchAll(
+            "SELECT oi.*, p.name AS product_name FROM order_items oi
+             JOIN products p ON oi.product_id=p.id WHERE oi.order_id=?", 's', $order['id']
+        );
     }
     Response::success('Orders fetched', $orders);
 }
 
 // GET /orders?id=X — single order
 if ($method === 'GET' && $id) {
-    $order = $db->fetchOne("SELECT * FROM orders WHERE id=? AND customer_id=?", 'ii', $id, $customer['id']);
+    $order = $db->fetchOne("SELECT * FROM orders WHERE id=? AND customer_id=?", 'ss', $id, $customer['id']);
     if (!$order) Response::error('Order not found', 404);
-    $order['items']   = $db->fetchAll("SELECT * FROM order_items WHERE order_id=?", 'i', $id);
-    $order['payment'] = $db->fetchOne("SELECT * FROM payments WHERE order_id=?", 'i', $id);
-    $order['address'] = $db->fetchOne("SELECT * FROM addresses WHERE id=?", 'i', $order['address_id']);
+    $order['items']   = $db->fetchAll(
+        "SELECT oi.*, p.name AS product_name FROM order_items oi
+         JOIN products p ON oi.product_id=p.id WHERE oi.order_id=?", 's', $id
+    );
+    $order['payment'] = $db->fetchOne("SELECT * FROM payments WHERE order_id=?", 's', $id);
+    $order['address'] = $db->fetchOne("SELECT * FROM customer_addresses WHERE id=?", 's', $order['address_id'] ?? '');
     Response::success('Order fetched', $order);
 }
 
@@ -51,10 +55,9 @@ if ($method === 'POST') {
     if ($err) Response::error($err);
 
     $cartItems = $db->fetchAll(
-        "SELECT c.quantity, p.id AS product_id, p.vendor_id, p.name, p.selling_price, p.stock_qty,
-                (SELECT image_url FROM product_images WHERE product_id=p.id AND is_primary=1 LIMIT 1) AS image
+        "SELECT c.quantity, p.id AS product_id, p.name, p.selling_price, p.stock_qty
          FROM cart c JOIN products p ON c.product_id=p.id
-         WHERE c.customer_id=? AND p.is_active=1", 'i', $customer['id']
+         WHERE c.customer_id=? AND p.is_active=TRUE", 's', $customer['id']
     );
     if (empty($cartItems)) Response::error('Cart is empty');
 
@@ -68,46 +71,42 @@ if ($method === 'POST') {
 
     if (!empty($body['coupon_code'])) {
         $coupon = $db->fetchOne(
-            "SELECT * FROM offers WHERE code=? AND is_active=1 AND valid_from<=NOW() AND valid_until>=NOW()",
+            "SELECT * FROM coupons WHERE code=? AND is_active=TRUE AND valid_from<=NOW() AND valid_to>=NOW()",
             's', strtoupper($body['coupon_code'])
         );
-        if ($coupon && $subtotal >= $coupon['min_order_value']) {
-            $discount = $coupon['discount_type'] === 'PERCENTAGE'
+        if ($coupon && $subtotal >= $coupon['minimum_order_amount']) {
+            $discount = $coupon['discount_type'] === 'percentage'
                 ? min($subtotal * $coupon['discount_value'] / 100, $coupon['max_discount'] ?? PHP_INT_MAX)
                 : $coupon['discount_value'];
-            $db->query("UPDATE offers SET used_count=used_count+1 WHERE id=?", 'i', $coupon['id']);
+            $db->query("UPDATE coupons SET used_count=used_count+1 WHERE id=?", 's', $coupon['id']);
         }
     }
 
     $total       = $subtotal - $discount + $delivery;
     $orderNumber = 'DA-' . date('Y') . '-' . str_pad((string)random_int(1, 99999), 5, '0', STR_PAD_LEFT);
+    $orderId     = OtpHelper::uuid();
 
     $db->query(
-        "INSERT INTO orders (order_number, customer_id, address_id, subtotal, discount_amount, delivery_charge, total_amount, coupon_code, payment_method)
-         VALUES (?,?,?,?,?,?,?,?,?)",
-        'siidddds s',
-        $orderNumber, $customer['id'], (int)$body['address_id'],
-        $subtotal, $discount, $delivery, $total,
-        $body['coupon_code'] ?? '', strtoupper($body['payment_method'])
+        "INSERT INTO orders (id,order_number,customer_id,total_amount,discount_amount,shipping_charge,final_amount,payment_status,order_status)
+         VALUES (?,?,?,?,?,?,?,'PENDING','PLACED')",
+        'sssdddd', $orderId, $orderNumber, $customer['id'], $subtotal, $discount, $delivery, $total
     );
-    $orderId = $db->lastInsertId();
 
     foreach ($cartItems as $item) {
         $db->query(
-            "INSERT INTO order_items (order_id, product_id, vendor_id, product_name, product_image, quantity, unit_price, total_price)
-             VALUES (?,?,?,?,?,?,?,?)",
-            'iiiissdd',
-            $orderId, $item['product_id'], $item['vendor_id'],
-            $item['name'], $item['image'] ?? '',
-            $item['quantity'], $item['selling_price'],
-            $item['selling_price'] * $item['quantity']
+            "INSERT INTO order_items (id,order_id,product_id,quantity,price,total) VALUES (?,?,?,?,?,?)",
+            'sssid d', OtpHelper::uuid(), $orderId, $item['product_id'],
+            $item['quantity'], $item['selling_price'], $item['selling_price'] * $item['quantity']
         );
         $db->query("UPDATE products SET stock_qty=stock_qty-?, sold_count=sold_count+? WHERE id=?",
-            'iii', $item['quantity'], $item['quantity'], $item['product_id']);
+            'iis', $item['quantity'], $item['quantity'], $item['product_id']);
     }
 
-    $db->query("DELETE FROM cart WHERE customer_id=?", 'i', $customer['id']);
-    $db->query("INSERT INTO payments (order_id, amount, status) VALUES (?,?,'CREATED')", 'id', $orderId, $total);
+    $db->query("DELETE FROM cart WHERE customer_id=?", 's', $customer['id']);
+    $db->query(
+        "INSERT INTO payments (id,order_id,payment_method,amount,payment_status) VALUES (?,?,?,?,'PENDING')",
+        'sssd', OtpHelper::uuid(), $orderId, strtoupper($body['payment_method']), $total
+    );
 
     Response::success('Order placed successfully', [
         'order_id'     => $orderId,
@@ -118,15 +117,15 @@ if ($method === 'POST') {
 
 // PUT /orders?id=X — cancel order
 if ($method === 'PUT' && $id) {
-    $order = $db->fetchOne("SELECT * FROM orders WHERE id=? AND customer_id=?", 'ii', $id, $customer['id']);
+    $order = $db->fetchOne("SELECT * FROM orders WHERE id=? AND customer_id=?", 'ss', $id, $customer['id']);
     if (!$order) Response::error('Order not found', 404);
     if (!in_array($order['order_status'], ['PLACED', 'CONFIRMED'])) {
         Response::error('Order cannot be cancelled at this stage');
     }
-    $db->query("UPDATE orders SET order_status='CANCELLED' WHERE id=?", 'i', $id);
-    $items = $db->fetchAll("SELECT * FROM order_items WHERE order_id=?", 'i', $id);
+    $db->query("UPDATE orders SET order_status='CANCELLED' WHERE id=?", 's', $id);
+    $items = $db->fetchAll("SELECT * FROM order_items WHERE order_id=?", 's', $id);
     foreach ($items as $item) {
-        $db->query("UPDATE products SET stock_qty=stock_qty+? WHERE id=?", 'ii', $item['quantity'], $item['product_id']);
+        $db->query("UPDATE products SET stock_qty=stock_qty+? WHERE id=?", 'is', $item['quantity'], $item['product_id']);
     }
     Response::success('Order cancelled');
 }

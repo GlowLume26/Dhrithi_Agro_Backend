@@ -1,11 +1,12 @@
 <?php
 // ============================================================
-// DRITHI AGRO — Database & App Configuration
+// DRITHI AGRO — Database & App Configuration (PostgreSQL)
 // ============================================================
 
 define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_PORT', '5432');
+define('DB_USER', 'postgres');
+define('DB_PASS', 'Bhavesh123');
 define('DB_NAME', 'drithi_agro');
 
 define('JWT_SECRET', 'drithi-agro-jwt-secret-2025-change-in-production');
@@ -22,12 +23,12 @@ define('OTP_LENGTH', 6);
 // SMTP — Gmail
 define('SMTP_HOST',      'smtp.gmail.com');
 define('SMTP_PORT',      587);
-define('SMTP_USER',      '');  // 👈 PUT YOUR GMAIL: example@gmail.com
-define('SMTP_PASS',      '');  // 👈 PUT GMAIL APP PASSWORD (not your login password)
+define('SMTP_USER',      '');
+define('SMTP_PASS',      '');
 define('SMTP_FROM_NAME', 'Drithi Agro');
 
-// Fast2SMS — Free Indian SMS API (https://www.fast2sms.com)
-define('FAST2SMS_API_KEY', ''); // 👈 PUT YOUR fast2sms API key here
+// Fast2SMS
+define('FAST2SMS_API_KEY', '');
 
 // Razorpay
 define('RAZORPAY_KEY_ID',     'rzp_test_xxxx');
@@ -35,15 +36,19 @@ define('RAZORPAY_KEY_SECRET', 'your_razorpay_secret');
 
 class Database {
     private static ?Database $instance = null;
-    private mysqli $conn;
+    private PDO $conn;
 
     private function __construct() {
-        $this->conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-        if ($this->conn->connect_error) {
+        $dsn = 'pgsql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME;
+        try {
+            $this->conn = new PDO($dsn, DB_USER, DB_PASS, [
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+        } catch (PDOException $e) {
             http_response_code(500);
-            die(json_encode(['success' => false, 'message' => 'Database connection failed: ' . $this->conn->connect_error]));
+            die(json_encode(['success' => false, 'message' => $e->getMessage()]));
         }
-        $this->conn->set_charset('utf8mb4');
     }
 
     public static function getInstance(): Database {
@@ -51,29 +56,35 @@ class Database {
         return self::$instance;
     }
 
-    public function getConn(): mysqli { return $this->conn; }
+    public function getConn(): PDO { return $this->conn; }
 
-    public function query(string $sql, string $types = '', mixed ...$params): mysqli_result|bool {
-        $stmt = $this->conn->prepare($sql);
-        if (!$stmt) {
+    public function query(string $sql, string $types = '', mixed ...$params): PDOStatement|bool {
+        try {
+            $stmt = $this->conn->prepare($sql);
+            $stmt->execute($params ?: []);
+            return $stmt;
+        } catch (PDOException $e) {
             http_response_code(500);
-            die(json_encode(['success' => false, 'message' => 'Query prepare failed: ' . $this->conn->error]));
+            die(json_encode(['success' => false, 'message' => 'Query failed: ' . $e->getMessage()]));
         }
-        if ($types && $params) $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        return $stmt->get_result() ?: ($stmt->affected_rows >= 0);
     }
 
     public function fetchAll(string $sql, string $types = '', mixed ...$params): array {
-        $result = $this->query($sql, $types, ...$params);
-        return $result instanceof mysqli_result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+        $stmt = $this->query($sql, $types, ...$params);
+        return $stmt instanceof PDOStatement ? $stmt->fetchAll() : [];
     }
 
     public function fetchOne(string $sql, string $types = '', mixed ...$params): ?array {
-        $result = $this->query($sql, $types, ...$params);
-        return $result instanceof mysqli_result ? ($result->fetch_assoc() ?: null) : null;
+        $stmt = $this->query($sql, $types, ...$params);
+        $row  = $stmt instanceof PDOStatement ? $stmt->fetch() : false;
+        return $row ?: null;
     }
 
-    public function lastInsertId(): int { return $this->conn->insert_id; }
-    public function escape(string $val): string { return $this->conn->real_escape_string($val); }
+    public function lastInsertId(string $sequence = ''): int {
+        return (int)$this->conn->lastInsertId($sequence ?: null);
+    }
+
+    public function escape(string $val): string {
+        return str_replace("'", "''", $val);
+    }
 }
