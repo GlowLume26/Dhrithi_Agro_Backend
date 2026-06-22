@@ -10,7 +10,6 @@ $body   = json_decode(file_get_contents('php://input'), true) ?? [];
 if ($method === 'POST' && ($body['action'] ?? '') === 'send_otp') {
     $input   = trim($body['mobile'] ?? $body['email'] ?? '');
     $purpose = $body['purpose'] ?? 'LOGIN';
-
     if (!$input) Response::error('Mobile number or email is required');
 
     $isEmail  = Validator::email($input);
@@ -24,47 +23,41 @@ if ($method === 'POST' && ($body['action'] ?? '') === 'send_otp') {
     if ($isMobile)    { $sent = OtpHelper::sendSMS($input, $otp);   $channel = 'SMS'; }
     elseif ($isEmail) { $sent = OtpHelper::sendEmail($input, $otp); $channel = 'email'; }
 
-    $devOtp = (FAST2SMS_API_KEY === '' && SMTP_PASS === '') ? $otp : null;
+    $devOtp = (!FAST2SMS_API_KEY && !SMTP_PASS) ? $otp : null;
     Response::success(
-        $sent ? "OTP sent via $channel" : "OTP generated (configure SMS/Email credentials to receive it)",
-        array_filter(['channel' => $channel ?: ($isEmail ? 'email' : 'sms'), 'expires_in' => OTP_EXPIRY_MINUTES . ' minutes', 'otp' => $devOtp])
+        $sent ? "OTP sent via $channel" : "OTP generated (configure SMS/Email to receive it)",
+        array_filter(['channel' => $channel, 'expires_in' => OTP_EXPIRY_MINUTES . ' minutes', 'otp' => $devOtp])
     );
 }
 
-// POST /auth — verify_otp (Login)
+// POST /auth — verify_otp
 if ($method === 'POST' && ($body['action'] ?? '') === 'verify_otp') {
     $input = trim($body['mobile'] ?? $body['email'] ?? '');
     $otp   = trim($body['otp'] ?? '');
-
     if (!$input || !$otp) Response::error('Mobile/Email and OTP are required');
     if (!OtpHelper::verify($input, $otp)) Response::error('Invalid or expired OTP', 401);
 
     $isEmail = Validator::email($input);
+    $field   = $isEmail ? 'email' : 'mobile';
+    $user    = $db->fetchOne("SELECT * FROM users WHERE $field=?", $input);
 
-    if ($isEmail) {
-        $user = $db->fetchOne("SELECT * FROM users WHERE email=?", 's', $input);
-        if (!$user) {
-            $userId = OtpHelper::uuid();
-            $db->query("INSERT INTO users (id,first_name,last_name,email,mobile,password_hash,role) VALUES (?,?,?,?,?,?,'customer')",
-                'ssssss', $userId, explode('@', $input)[0], '', $input, '', password_hash(uniqid(), PASSWORD_DEFAULT));
-            $db->query("INSERT INTO customers (id,user_id,customer_code) VALUES (?,?,?)",
-                'sss', OtpHelper::uuid(), $userId, 'CUS-' . strtoupper(substr($userId, 0, 8)));
-            $user = $db->fetchOne("SELECT * FROM users WHERE id=?", 's', $userId);
-        }
-    } else {
-        $user = $db->fetchOne("SELECT * FROM users WHERE mobile=?", 's', $input);
-        if (!$user) {
-            $userId = OtpHelper::uuid();
-            $db->query("INSERT INTO users (id,first_name,last_name,email,mobile,password_hash,role) VALUES (?,?,?,?,?,?,'customer')",
-                'ssssss', $userId, '', '', '', $input, password_hash(uniqid(), PASSWORD_DEFAULT));
-            $db->query("INSERT INTO customers (id,user_id,customer_code) VALUES (?,?,?)",
-                'sss', OtpHelper::uuid(), $userId, 'CUS-' . strtoupper(substr($userId, 0, 8)));
-            $user = $db->fetchOne("SELECT * FROM users WHERE id=?", 's', $userId);
-        }
+    if (!$user) {
+        $db->begin();
+        $userId = $db->fetchOne("SELECT gen_random_uuid() AS id")['id'];
+        $name   = $isEmail ? explode('@', $input)[0] : '';
+        $db->query(
+            "INSERT INTO users (id,first_name,last_name,email,mobile,password_hash,role) VALUES (?,?,?,?,?,?,'customer')",
+            $userId, $name, '', $isEmail ? $input : '', $isEmail ? '' : $input, password_hash(uniqid('', true), PASSWORD_DEFAULT)
+        );
+        $db->query(
+            "INSERT INTO customers (id,user_id,customer_code) VALUES (gen_random_uuid(),?,?)",
+            $userId, 'CUS-' . strtoupper(substr($userId, 0, 8))
+        );
+        $db->commit();
+        $user = $db->fetchOne("SELECT * FROM users WHERE id=?", $userId);
     }
 
     if (!$user['is_active']) Response::error('Account is suspended', 403);
-
     $token = JWT::generate(['user_id' => $user['id'], 'mobile' => $user['mobile'], 'role' => $user['role']]);
     Response::success('Login successful', [
         'token' => $token,
@@ -78,15 +71,21 @@ if ($method === 'POST' && ($body['action'] ?? '') === 'register') {
     $err = Validator::required($body, ['first_name', 'mobile', 'otp']);
     if ($err) Response::error($err);
     if (!Validator::mobile($body['mobile'])) Response::error('Invalid mobile number');
+    if (!empty($body['email']) && !Validator::email($body['email'])) Response::error('Invalid email address');
     if (!OtpHelper::verify($body['mobile'], $body['otp'])) Response::error('Invalid or expired OTP', 401);
-    if ($db->fetchOne("SELECT id FROM users WHERE mobile=?", 's', $body['mobile'])) {
-        Response::error('Mobile number already registered');
-    }
-    $userId = OtpHelper::uuid();
-    $db->query("INSERT INTO users (id,first_name,last_name,email,mobile,password_hash,role,is_active) VALUES (?,?,?,?,?,?,'customer',TRUE)",
-        'ssssss', $userId, $body['first_name'], $body['last_name'] ?? '', $body['email'] ?? '', $body['mobile'], password_hash(uniqid(), PASSWORD_DEFAULT));
-    $db->query("INSERT INTO customers (id,user_id,customer_code) VALUES (?,?,?)",
-        'sss', OtpHelper::uuid(), $userId, 'CUS-' . strtoupper(substr($userId, 0, 8)));
+    if ($db->fetchOne("SELECT id FROM users WHERE mobile=?", $body['mobile'])) Response::error('Mobile already registered');
+
+    $db->begin();
+    $userId = $db->fetchOne("SELECT gen_random_uuid() AS id")['id'];
+    $db->query(
+        "INSERT INTO users (id,first_name,last_name,email,mobile,password_hash,role,is_active) VALUES (?,?,?,?,?,?,'customer',TRUE)",
+        $userId, $body['first_name'], $body['last_name'] ?? '', $body['email'] ?? '', $body['mobile'],
+        password_hash(uniqid('', true), PASSWORD_DEFAULT)
+    );
+    $db->query("INSERT INTO customers (id,user_id,customer_code) VALUES (gen_random_uuid(),?,?)",
+        $userId, 'CUS-' . strtoupper(substr($userId, 0, 8)));
+    $db->commit();
+
     $token = JWT::generate(['user_id' => $userId, 'mobile' => $body['mobile'], 'role' => 'customer']);
     Response::success('Account created successfully', ['token' => $token], 201);
 }

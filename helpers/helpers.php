@@ -3,11 +3,11 @@ require_once __DIR__ . '/../config/database.php';
 
 class JWT {
     public static function generate(array $payload): string {
-        $header  = rtrim(base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT'])), '=');
+        $header = base64url_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
         $payload['iat'] = time();
         $payload['exp'] = time() + JWT_EXPIRY;
-        $p   = rtrim(base64_encode(json_encode($payload)), '=');
-        $sig = rtrim(base64_encode(hash_hmac('sha256', "$header.$p", JWT_SECRET, true)), '=');
+        $p   = base64url_encode(json_encode($payload));
+        $sig = base64url_encode(hash_hmac('sha256', "$header.$p", JWT_SECRET, true));
         return "$header.$p.$sig";
     }
 
@@ -15,18 +15,25 @@ class JWT {
         $parts = explode('.', $token);
         if (count($parts) !== 3) return null;
         [$header, $p, $sig] = $parts;
-        $expected = rtrim(base64_encode(hash_hmac('sha256', "$header.$p", JWT_SECRET, true)), '=');
+        $expected = base64url_encode(hash_hmac('sha256', "$header.$p", JWT_SECRET, true));
         if (!hash_equals($expected, $sig)) return null;
-        $data = json_decode(base64_decode($p), true);
+        $data = json_decode(base64url_decode($p), true);
         if (!$data || $data['exp'] < time()) return null;
         return $data;
     }
 }
 
+function base64url_encode(string $data): string {
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
+function base64url_decode(string $data): string {
+    return base64_decode(strtr($data, '-_', '+/'));
+}
+
 class Response {
     public static function json(mixed $data, int $code = 200): void {
         http_response_code($code);
-        echo json_encode($data);
+        echo json_encode($data, JSON_UNESCAPED_UNICODE);
         exit;
     }
     public static function success(string $message, mixed $data = null, int $code = 200): void {
@@ -38,99 +45,86 @@ class Response {
 }
 
 class OtpHelper {
-    private static string $cacheFile = '';
+    // OTPs stored in PostgreSQL otp_cache table (auto-created if missing)
+    private static bool $tableEnsured = false;
 
-    private static function cacheFile(): string {
-        if (!self::$cacheFile) self::$cacheFile = sys_get_temp_dir() . '/drithi_otp_cache.json';
-        return self::$cacheFile;
-    }
-
-    private static function loadCache(): array {
-        $f = self::cacheFile();
-        return file_exists($f) ? (json_decode(file_get_contents($f), true) ?? []) : [];
-    }
-
-    private static function saveCache(array $data): void {
-        file_put_contents(self::cacheFile(), json_encode($data));
-    }
-
-    public static function uuid(): string {
-        return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-            mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000,
-            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+    private static function ensureTable(): void {
+        if (self::$tableEnsured) return;
+        $db = Database::getInstance();
+        $db->query("CREATE TABLE IF NOT EXISTS otp_cache (
+            identifier  VARCHAR(100) PRIMARY KEY,
+            otp_code    VARCHAR(6)   NOT NULL,
+            purpose     VARCHAR(20)  NOT NULL DEFAULT 'LOGIN',
+            expires_at  BIGINT       NOT NULL,
+            is_used     BOOLEAN      NOT NULL DEFAULT FALSE
+        )");
+        self::$tableEnsured = true;
     }
 
     public static function generate(): string {
         return str_pad((string)random_int(0, 999999), OTP_LENGTH, '0', STR_PAD_LEFT);
     }
 
-    public static function save(string $input, string $otp, string $purpose = 'LOGIN'): void {
-        $cache = self::loadCache();
-        $cache[$input] = ['otp' => $otp, 'purpose' => $purpose, 'expires' => time() + OTP_EXPIRY_MINUTES * 60, 'used' => false];
-        self::saveCache($cache);
+    public static function save(string $identifier, string $otp, string $purpose = 'LOGIN'): void {
+        self::ensureTable();
+        $db = Database::getInstance();
+        $expires = time() + OTP_EXPIRY_MINUTES * 60;
+        $db->query(
+            "INSERT INTO otp_cache (identifier, otp_code, purpose, expires_at, is_used)
+             VALUES (?,?,?,?,FALSE)
+             ON CONFLICT (identifier) DO UPDATE SET otp_code=EXCLUDED.otp_code, purpose=EXCLUDED.purpose, expires_at=EXCLUDED.expires_at, is_used=FALSE",
+            $identifier, $otp, $purpose, $expires
+        );
     }
 
-    public static function verify(string $input, string $otp): bool {
-        $cache = self::loadCache();
-        if (!isset($cache[$input])) return false;
-        $entry = $cache[$input];
-        if ($entry['used'] || $entry['expires'] < time() || $entry['otp'] !== $otp) return false;
-        $cache[$input]['used'] = true;
-        self::saveCache($cache);
+    public static function verify(string $identifier, string $otp): bool {
+        self::ensureTable();
+        $db  = Database::getInstance();
+        $row = $db->fetchOne(
+            "SELECT otp_code, expires_at, is_used FROM otp_cache WHERE identifier=?",
+            $identifier
+        );
+        if (!$row || $row['is_used'] || $row['expires_at'] < time() || $row['otp_code'] !== $otp) return false;
+        $db->query("UPDATE otp_cache SET is_used=TRUE WHERE identifier=?", $identifier);
         return true;
     }
 
-    // ── Send OTP via Fast2SMS (Indian SMS) ──
     public static function sendSMS(string $mobile, string $otp): bool {
-        if (!FAST2SMS_API_KEY) return false; // key not configured
-        $url  = 'https://www.fast2sms.com/dev/bulkV2';
-        $data = http_build_query([
-            'authorization' => FAST2SMS_API_KEY,
-            'variables_values' => $otp,
-            'route'            => 'otp',
-            'numbers'          => $mobile,
-        ]);
+        if (!FAST2SMS_API_KEY) return false;
         $ch = curl_init();
         curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
+            CURLOPT_URL            => 'https://www.fast2sms.com/dev/bulkV2',
             CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $data,
+            CURLOPT_POSTFIELDS     => http_build_query(['authorization' => FAST2SMS_API_KEY, 'variables_values' => $otp, 'route' => 'otp', 'numbers' => $mobile]),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 10,
             CURLOPT_HTTPHEADER     => ['cache-control: no-cache'],
         ]);
-        $res  = curl_exec($ch);
-        $err  = curl_error($ch);
+        $res = curl_exec($ch);
+        $err = curl_error($ch);
         curl_close($ch);
         if ($err) return false;
         $json = json_decode($res, true);
         return isset($json['return']) && $json['return'] === true;
     }
 
-    // ── Send OTP via Gmail SMTP (pure PHP, no PHPMailer) ──
     public static function sendEmail(string $toEmail, string $otp): bool {
-        if (!SMTP_USER || !SMTP_PASS) return false; // credentials not configured
+        if (!SMTP_USER || !SMTP_PASS) return false;
         $subject = 'Your Drithi Agro OTP: ' . $otp;
-        $message = "Your OTP for Drithi Agro is: <b>$otp</b><br>Valid for " . OTP_EXPIRY_MINUTES . " minutes.<br><br>Do not share this OTP with anyone.";
+        $message = "Your OTP is: <b>$otp</b><br>Valid for " . OTP_EXPIRY_MINUTES . " minutes. Do not share.";
         $headers = implode("\r\n", [
             'MIME-Version: 1.0',
             'Content-type: text/html; charset=utf-8',
             'From: ' . SMTP_FROM_NAME . ' <' . SMTP_USER . '>',
-            'Reply-To: ' . SMTP_USER,
         ]);
-        // Use sendmail via SMTP socket
-        $fp = @fsockopen('ssl://' . SMTP_HOST, 465, $errno, $errstr, 10);
-        if (!$fp) {
-            // Fallback: try PHP mail()
-            return mail($toEmail, $subject, $message, $headers);
-        }
-        $recv = fgets($fp, 515);
+        $fp = @fsockopen('ssl://' . SMTP_HOST, SMTP_PORT, $errno, $errstr, 10);
+        if (!$fp) return mail($toEmail, $subject, $message, $headers);
+        fgets($fp, 515);
         fwrite($fp, "EHLO localhost\r\n");      fgets($fp, 515);
         fwrite($fp, "AUTH LOGIN\r\n");           fgets($fp, 515);
         fwrite($fp, base64_encode(SMTP_USER) . "\r\n"); fgets($fp, 515);
         fwrite($fp, base64_encode(SMTP_PASS) . "\r\n"); $res = fgets($fp, 515);
-        if (strpos($res, '235') === false) { fclose($fp); return false; }
+        if (!str_contains($res, '235')) { fclose($fp); return false; }
         fwrite($fp, "MAIL FROM:<" . SMTP_USER . ">\r\n");  fgets($fp, 515);
         fwrite($fp, "RCPT TO:<$toEmail>\r\n");              fgets($fp, 515);
         fwrite($fp, "DATA\r\n");                            fgets($fp, 515);
@@ -138,7 +132,7 @@ class OtpHelper {
         $res = fgets($fp, 515);
         fwrite($fp, "QUIT\r\n");
         fclose($fp);
-        return strpos($res, '250') !== false;
+        return str_contains($res, '250');
     }
 }
 
@@ -151,17 +145,28 @@ class Validator {
         }
         return null;
     }
+    public static function uuid(string $v): bool {
+        return (bool)preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $v);
+    }
 }
 
 class FileUpload {
+    private static array $allowed = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+
     public static function upload(array $file, string $folder = 'general'): string {
-        $dir = UPLOAD_PATH . $folder . '/';
-        if (!is_dir($dir)) mkdir($dir, 0755, true);
-        $ext     = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        $allowed = ['jpg', 'jpeg', 'png', 'pdf', 'webp'];
-        if (!in_array($ext, $allowed)) throw new Exception('Invalid file type. Allowed: jpg, jpeg, png, pdf, webp');
+        if ($file['error'] !== UPLOAD_ERR_OK) throw new Exception('Upload error code: ' . $file['error']);
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, self::$allowed)) throw new Exception('Invalid file type. Allowed: ' . implode(', ', self::$allowed));
         if ($file['size'] > MAX_FILE_SIZE) throw new Exception('File too large (max 5MB)');
-        $name = uniqid() . '_' . time() . '.' . $ext;
+        // Verify actual mime type
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime  = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+        $allowedMime = ['image/jpeg','image/png','image/webp','application/pdf'];
+        if (!in_array($mime, $allowedMime)) throw new Exception('Invalid file content');
+        $dir  = UPLOAD_PATH . $folder . '/';
+        if (!is_dir($dir)) mkdir($dir, 0755, true);
+        $name = bin2hex(random_bytes(16)) . '.' . $ext;
         if (!move_uploaded_file($file['tmp_name'], $dir . $name)) throw new Exception('Upload failed');
         return UPLOAD_URL . $folder . '/' . $name;
     }
