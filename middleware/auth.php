@@ -14,7 +14,7 @@ function authMiddleware(): array {
 
 function adminMiddleware(): array {
     $payload = authMiddleware();
-    if ($payload['role'] !== 'admin') Response::error('Forbidden — admin access required', 403);
+    if (!in_array($payload['role'], ['admin', 'owner', 'superadmin'])) Response::error('Forbidden — admin access required', 403);
     return $payload;
 }
 

@@ -20,12 +20,14 @@ $routes = [
     'auth'       => __DIR__ . '/controllers/auth.php',
     'products'   => __DIR__ . '/controllers/products.php',
     'categories' => __DIR__ . '/controllers/categories.php',
+    'brands'     => __DIR__ . '/controllers/brands.php',
     'cart'       => __DIR__ . '/controllers/cart.php',
     'orders'     => __DIR__ . '/controllers/orders.php',
     'wishlist'   => __DIR__ . '/controllers/wishlist.php',
     'vendors'    => __DIR__ . '/controllers/vendors.php',
     'admin'      => __DIR__ . '/controllers/admin.php',
     'customer'   => __DIR__ . '/controllers/customer.php',
+    'settings'   => __DIR__ . '/controllers/settings.php',
 ];
 
 if (isset($routes[$route])) {

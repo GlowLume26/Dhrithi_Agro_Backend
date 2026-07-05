@@ -11,7 +11,12 @@ $id     = $_GET['id'] ?? '';
 if ($method === 'GET' && !$id) {
     $where = ['p.is_active = TRUE']; $params = [];
 
-    if (!empty($_GET['category_id'])) { $where[] = 'p.category_id=?'; $params[] = $_GET['category_id']; }
+    if (!empty($_GET['category_id'])) {
+        // match direct category OR products whose category's parent matches
+        $where[] = '(p.category_id=? OR c.parent_id=?)';
+        $params[] = $_GET['category_id'];
+        $params[] = $_GET['category_id'];
+    }
     if (!empty($_GET['vendor_id']))   { $where[] = 'p.vendor_id=?';   $params[] = $_GET['vendor_id']; }
     if (!empty($_GET['search'])) {
         $where[] = 'p.search_vector @@ plainto_tsquery(?)';
@@ -31,7 +36,8 @@ if ($method === 'GET' && !$id) {
     $whereStr = implode(' AND ', $where);
     $sql = "SELECT p.id, p.name, p.slug, p.mrp, p.selling_price, p.stock_qty, p.unit,
                    p.avg_rating, p.review_count, p.sold_count, p.is_featured,
-                   c.name AS category_name, pc.name AS parent_category_name,
+                   pc.name AS category_name,
+                   c.name AS subcategory_name,
                    v.business_name AS vendor_name, pi.image_url AS primary_image
             FROM products p
             LEFT JOIN categories c  ON p.category_id=c.id
@@ -44,7 +50,7 @@ if ($method === 'GET' && !$id) {
             WHERE $whereStr ORDER BY p.$sort $order LIMIT $limit OFFSET $offset";
 
     $products = $db->fetchAll($sql, ...$params);
-    $total    = ($db->fetchOne("SELECT COUNT(*) AS total FROM products p WHERE $whereStr", ...$params))['total'] ?? 0;
+    $total = ($db->fetchOne("SELECT COUNT(*) AS total FROM products p LEFT JOIN categories c ON p.category_id=c.id WHERE $whereStr", ...$params))['total'] ?? 0;
 
     Response::json(['success' => true, 'data' => $products,
         'meta' => ['total' => (int)$total, 'page' => $page, 'limit' => $limit, 'pages' => (int)ceil($total / $limit)]]);
@@ -54,7 +60,10 @@ if ($method === 'GET' && !$id) {
 if ($method === 'GET' && $id) {
     if (!Validator::uuid($id)) Response::error('Invalid product ID', 400);
     $product = $db->fetchOne(
-        "SELECT p.*, c.name AS category_name, pc.name AS parent_category_name,
+        "SELECT p.*,
+                pc.name AS category_name,
+                c.name AS subcategory_name,
+                pc.name AS parent_category_name,
                 v.business_name AS vendor_name, v.is_verified AS vendor_verified
          FROM products p
          LEFT JOIN categories c  ON p.category_id=c.id

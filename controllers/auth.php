@@ -90,4 +90,28 @@ if ($method === 'POST' && ($body['action'] ?? '') === 'register') {
     Response::success('Account created successfully', ['token' => $token], 201);
 }
 
+// POST /auth — admin_login (password-based, no OTP)
+if ($method === 'POST' && ($body['action'] ?? '') === 'admin_login') {
+    $email    = trim($body['email']    ?? '');
+    $password = trim($body['password'] ?? '');
+    if (!$email || !$password) Response::error('Email and password are required');
+    if (!Validator::email($email))    Response::error('Invalid email address');
+
+    $user = $db->fetchOne("SELECT * FROM users WHERE email=? AND role IN ('admin','owner','superadmin')", $email);
+    if (!$user) Response::error('Invalid credentials', 401);
+    if (!password_verify($password, $user['password_hash'])) Response::error('Invalid credentials', 401);
+    if (!$user['is_active']) Response::error('Account is suspended', 403);
+
+    $token = JWT::generate(['user_id' => $user['id'], 'email' => $user['email'], 'role' => $user['role']]);
+    Response::success('Admin login successful', [
+        'token' => $token,
+        'user'  => [
+            'id'    => $user['id'],
+            'name'  => trim($user['first_name'] . ' ' . $user['last_name']),
+            'email' => $user['email'],
+            'role'  => $user['role'],
+        ]
+    ]);
+}
+
 Response::error('Invalid request', 404);

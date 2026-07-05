@@ -1,4 +1,12 @@
 <?php
+set_exception_handler(function($e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => $e->getMessage(), 'file' => basename($e->getFile()), 'line' => $e->getLine()]);
+    exit;
+});
+set_error_handler(function($no, $str, $file, $line) {
+    throw new ErrorException($str, 0, $no, $file, $line);
+});
 require_once __DIR__ . '/../helpers/helpers.php';
 require_once __DIR__ . '/../middleware/auth.php';
 
@@ -10,6 +18,12 @@ $id     = $_GET['id'] ?? '';
 
 $customer = $db->fetchOne("SELECT id FROM customers WHERE user_id=?", $auth['user_id']);
 if (!$customer) Response::error('Customer not found', 404);
+
+$settingsRows = $db->fetchAll("SELECT key, value FROM app_settings WHERE key IN ('delivery_free_threshold','delivery_charge')");
+$settings = [];
+foreach ($settingsRows as $r) $settings[$r['key']] = $r['value'];
+$FREE_THRESHOLD  = (float)($settings['delivery_free_threshold'] ?? 499);
+$DELIVERY_CHARGE = (float)($settings['delivery_charge'] ?? 49);
 
 // GET /orders — list (fix N+1: fetch all items in one query)
 if ($method === 'GET' && !$id) {
@@ -80,7 +94,7 @@ if ($method === 'POST') {
     }
 
     $subtotal = array_sum(array_map(fn($i) => $i['selling_price'] * $i['quantity'], $cartItems));
-    $delivery = $subtotal >= 499 ? 0.0 : 49.0;
+    $delivery = $subtotal >= $FREE_THRESHOLD ? 0.0 : $DELIVERY_CHARGE;
     $discount = 0.0;
 
     if (!empty($body['coupon_code'])) {

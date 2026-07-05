@@ -20,8 +20,8 @@ define('UPLOAD_PATH',  __DIR__ . '/../uploads/');
 define('UPLOAD_URL',   APP_URL . '/uploads/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024);
 
-define('OTP_EXPIRY_MINUTES', 10);
-define('OTP_LENGTH', 6);
+define('OTP_EXPIRY_MINUTES', (int)($_ENV['OTP_EXPIRY_MINUTES'] ?? 10));
+define('OTP_LENGTH',         (int)($_ENV['OTP_LENGTH']         ?? 6));
 
 define('SMTP_HOST',      $_ENV['SMTP_HOST']      ?? 'smtp.gmail.com');
 define('SMTP_PORT',      (int)($_ENV['SMTP_PORT'] ?? 587));

@@ -10,6 +10,12 @@ $auth   = authMiddleware();
 $customer = $db->fetchOne("SELECT id FROM customers WHERE user_id=?", $auth['user_id']);
 if (!$customer) Response::error('Customer not found', 404);
 
+$settingsRows = $db->fetchAll("SELECT key, value FROM app_settings WHERE key IN ('delivery_free_threshold','delivery_charge')");
+$settings = [];
+foreach ($settingsRows as $r) $settings[$r['key']] = $r['value'];
+$FREE_THRESHOLD = (float)($settings['delivery_free_threshold'] ?? 499);
+$DELIVERY_CHARGE = (float)($settings['delivery_charge'] ?? 49);
+
 if ($method === 'GET') {
     $items = $db->fetchAll(
         "SELECT c.id, c.quantity, p.id AS product_id, p.name, p.selling_price, p.mrp, p.stock_qty,
@@ -22,15 +28,16 @@ if ($method === 'GET') {
     );
     $subtotal = array_sum(array_map(fn($i) => $i['selling_price'] * $i['quantity'], $items));
     $mrpTotal = array_sum(array_map(fn($i) => $i['mrp'] * $i['quantity'], $items));
-    $delivery = $subtotal >= 499 ? 0 : 49;
+    $delivery = $subtotal >= $FREE_THRESHOLD ? 0 : $DELIVERY_CHARGE;
     Response::success('Cart fetched', [
-        'items'     => $items,
-        'subtotal'  => round($subtotal, 2),
-        'mrp_total' => round($mrpTotal, 2),
-        'savings'   => round($mrpTotal - $subtotal, 2),
-        'delivery'  => $delivery,
-        'total'     => round($subtotal + $delivery, 2),
-        'item_count'=> count($items),
+        'items'      => $items,
+        'subtotal'   => round($subtotal, 2),
+        'mrp_total'  => round($mrpTotal, 2),
+        'savings'    => round($mrpTotal - $subtotal, 2),
+        'delivery'   => $delivery,
+        'total'      => round($subtotal + $delivery, 2),
+        'item_count' => count($items),
+        'free_threshold' => $FREE_THRESHOLD,
     ]);
 }
 

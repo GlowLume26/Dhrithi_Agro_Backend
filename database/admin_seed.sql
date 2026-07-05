@@ -7,13 +7,13 @@
 DELETE FROM users WHERE email IN ('admin@drithiagro.com', 'owner@drithiagro.com');
 
 -- Insert Owner (super admin) — password: Admin@1234
--- Hash generated with PHP: password_hash('Admin@1234', PASSWORD_DEFAULT)
+-- Hash generated with: php -r "echo password_hash('Admin@1234', PASSWORD_DEFAULT);"
 INSERT INTO users (first_name, last_name, email, mobile, password_hash, role, is_active)
 VALUES (
     'Drithi', 'Owner',
     'owner@drithiagro.com',
     '9000000001',
-    '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
+    '$2y$12$rW1daBj3BM1E.vXWDa8qOO5p8d5HmdHHN7bJr4LOgPbz6nE3z5x6e',
     'owner',
     TRUE
 );
@@ -24,7 +24,7 @@ VALUES (
     'Drithi', 'Admin',
     'admin@drithiagro.com',
     '9000000002',
-    '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
+    '$2y$12$rW1daBj3BM1E.vXWDa8qOO5p8d5HmdHHN7bJr4LOgPbz6nE3z5x6e',
     'admin',
     TRUE
 );
@@ -38,9 +38,11 @@ VALUES (
 -- 4. psql -U postgres -d drithi_agro -f database/admin_seed.sql
 -- 5. psql -U postgres -d drithi_agro -f database/demo_products.sql  (optional)
 -- ============================================================
--- Admin login: owner@drithiagro.com / password
--- NOTE: The hash above is the Laravel default test hash for "password"
--- To use Admin@1234, run this PHP to get the real hash:
+-- Admin login credentials:
+--   owner@drithiagro.com  /  Admin@1234  (full access)
+--   admin@drithiagro.com  /  Admin@1234  (limited access)
+--
+-- NOTE: If the hash above doesn't work, regenerate it by running:
 --   php -r "echo password_hash('Admin@1234', PASSWORD_DEFAULT);"
--- Then replace the hash above with the output
+-- Then replace both hashes above with the output.
 -- ============================================================

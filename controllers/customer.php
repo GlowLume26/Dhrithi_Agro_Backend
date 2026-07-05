@@ -58,13 +58,14 @@ if ($method === 'POST' && $section === 'addresses') {
         $db->query("UPDATE customer_addresses SET is_default=FALSE WHERE customer_id=?", $customer['id']);
     }
     $type = strtolower($body['address_type'] ?? 'home');
-    if (!in_array($type, ['home','work','other'])) $type = 'home';
+    if (!in_array($type, ['home','farm','office','work','other'])) $type = 'home';
+    $isDefault = !empty($body['is_default']) ? TRUE : FALSE;
     $db->query(
         "INSERT INTO customer_addresses (id,customer_id,full_name,mobile,address_line1,address_line2,city,state,pincode,country,address_type,is_default)
          VALUES (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?)",
         $customer['id'], $body['full_name'], $body['mobile'], $body['address_line1'],
         $body['address_line2'] ?? '', $body['city'], $body['state'], $body['pincode'],
-        $body['country'] ?? 'India', $type, !empty($body['is_default'])
+        $body['country'] ?? 'India', $type, $isDefault ? 'TRUE' : 'FALSE'
     );
     $addr = $db->fetchOne("SELECT id FROM customer_addresses WHERE customer_id=? ORDER BY created_at DESC LIMIT 1", $customer['id']);
     Response::success('Address added', ['id' => $addr['id']], 201);
