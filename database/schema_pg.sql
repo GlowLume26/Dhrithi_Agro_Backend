@@ -17,6 +17,11 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL DEFAULT '',
     role          VARCHAR(10)  NOT NULL DEFAULT 'customer' CHECK (role IN ('customer','vendor','admin')),
     is_active     BOOLEAN DEFAULT TRUE,
+    gender        VARCHAR(10) CHECK (gender IN ('male','female','other')),
+    occupation    VARCHAR(100),
+    farm_size     VARCHAR(50),
+    primary_crop  VARCHAR(50),
+    dob           DATE,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

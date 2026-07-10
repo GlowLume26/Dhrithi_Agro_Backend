@@ -118,7 +118,7 @@ class OtpHelper {
             'From: ' . SMTP_FROM_NAME . ' <' . SMTP_USER . '>',
         ]);
         $fp = @fsockopen('ssl://' . SMTP_HOST, SMTP_PORT, $errno, $errstr, 10);
-        if (!$fp) return mail($toEmail, $subject, $message, $headers);
+        if (!$fp) return @mail($toEmail, $subject, $message, $headers);
         fgets($fp, 515);
         fwrite($fp, "EHLO localhost\r\n");      fgets($fp, 515);
         fwrite($fp, "AUTH LOGIN\r\n");           fgets($fp, 515);
