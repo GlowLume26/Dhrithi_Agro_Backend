@@ -150,7 +150,7 @@ if ($method === 'POST' && ($body['action'] ?? '') === 'admin_login') {
 
     $user = $db->fetchOne("SELECT * FROM users WHERE $field=?", $input);
     if (!$user) Response::error('Invalid credentials', 401);
-    if ($user['role'] !== 'admin') Response::error('Access denied — admin only', 403);
+    if (!in_array($user['role'], ['admin', 'owner'])) Response::error('Access denied — admin only', 403);
     if (!$user['is_active']) Response::error('Account is suspended', 403);
     if (!password_verify($password, $user['password_hash'])) Response::error('Invalid credentials', 401);
 
