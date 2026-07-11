@@ -13,9 +13,11 @@ if (!$customer) Response::error('Customer not found', 404);
 if ($method === 'GET') {
     $items = $db->fetchAll(
         "SELECT w.id, w.created_at, p.id AS product_id, p.name, p.selling_price, p.mrp, p.stock_qty,
-                pi.image_url AS image
+                pi.image_url AS image, v.business_name AS vendor_name, b.name AS brand_name
          FROM wishlist w
          JOIN products p ON w.product_id=p.id
+         JOIN vendors v ON p.vendor_id=v.id
+         LEFT JOIN brands b ON p.brand_id=b.id
          LEFT JOIN LATERAL (SELECT image_url FROM product_images WHERE product_id=p.id AND is_primary=TRUE LIMIT 1) pi ON TRUE
          WHERE w.customer_id=? AND p.is_active=TRUE ORDER BY w.created_at DESC", $customer['id']
     );
