@@ -155,14 +155,16 @@ if ($method === 'POST' && ($body['action'] ?? '') === 'admin_login') {
     if (!password_verify($password, $user['password_hash'])) Response::error('Invalid credentials', 401);
 
     $token = JWT::generate(['user_id' => $user['id'], 'mobile' => $user['mobile'], 'role' => $user['role']]);
+    $permissions = !empty($user['permissions']) ? json_decode($user['permissions'], true) : null;
     Response::success('Login successful', [
         'token' => $token,
         'user'  => [
-            'id'     => $user['id'],
-            'mobile' => $user['mobile'],
-            'email'  => $user['email'],
-            'role'   => $user['role'],
-            'name'   => trim($user['first_name'] . ' ' . $user['last_name'])
+            'id'          => $user['id'],
+            'mobile'      => $user['mobile'],
+            'email'       => $user['email'],
+            'role'        => $user['role'],
+            'name'        => trim($user['first_name'] . ' ' . $user['last_name']),
+            'permissions' => $permissions,
         ]
     ]);
 }

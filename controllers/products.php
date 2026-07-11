@@ -36,6 +36,7 @@ if ($method === 'GET' && !$id) {
     $whereStr = implode(' AND ', $where);
     $sql = "SELECT p.id, p.name, p.slug, p.mrp, p.selling_price, p.stock_qty, p.unit,
                    p.avg_rating, p.review_count, p.sold_count, p.is_featured,
+                   p.sku, p.product_code,
                    pc.name AS category_name,
                    c.name AS subcategory_name,
                    v.business_name AS vendor_name, pi.image_url AS primary_image
@@ -86,11 +87,17 @@ if ($method === 'GET' && $id) {
     Response::success('Product fetched', $product);
 }
 
-// POST /products — create (VENDOR only)
+// POST /products — create (VENDOR or ADMIN)
 if ($method === 'POST') {
-    $auth   = vendorMiddleware();
-    $vendor = $db->fetchOne("SELECT id FROM vendors WHERE user_id=? AND status='approved'", $auth['user_id']);
-    if (!$vendor) Response::error('Vendor not approved', 403);
+    $auth = authMiddleware();
+    if ($auth['role'] === 'admin' || $auth['role'] === 'owner') {
+        $vendor = null;
+        $vendorId = $body['vendor_id'] ?? null;
+    } else {
+        $vendor = $db->fetchOne("SELECT id FROM vendors WHERE user_id=? AND status='approved'", $auth['user_id']);
+        if (!$vendor) Response::error('Vendor not approved', 403);
+        $vendorId = $vendor['id'];
+    }
 
     $err = Validator::required($body, ['name', 'category_id', 'mrp', 'selling_price', 'stock_qty']);
     if ($err) Response::error($err);
@@ -98,11 +105,13 @@ if ($method === 'POST') {
     $db->begin();
     $slug      = strtolower(preg_replace('/[^a-z0-9]+/', '-', $body['name'])) . '-' . time();
     $productId = $db->fetchOne("SELECT gen_random_uuid() AS id")['id'];
+    $productCode = !empty($body['product_code']) ? $body['product_code'] : 'PRD-' . strtoupper(substr($productId, 0, 8));
     $db->query(
-        "INSERT INTO products (id,vendor_id,category_id,name,slug,description,sku,mrp,selling_price,stock_qty,unit,hsn_code,gst_rate)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        $productId, $vendor['id'], $body['category_id'], $body['name'], $slug,
+        "INSERT INTO products (id,vendor_id,category_id,name,slug,description,sku,product_code,mrp,selling_price,stock_qty,unit,hsn_code,gst_rate)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        $productId, $vendorId, $body['category_id'], $body['name'], $slug,
         $body['description'] ?? '', $body['sku'] ?? '',
+        $productCode,
         (float)$body['mrp'], (float)$body['selling_price'], (int)$body['stock_qty'],
         $body['unit'] ?? 'Piece', $body['hsn_code'] ?? '', (float)($body['gst_rate'] ?? 5.00)
     );
@@ -127,10 +136,21 @@ if ($method === 'POST') {
     Response::success('Product created', ['id' => $productId], 201);
 }
 
-// PUT /products?id=X — update (VENDOR only)
+// PUT /products?id=X — update (VENDOR or ADMIN)
 if ($method === 'PUT' && $id) {
     if (!Validator::uuid($id)) Response::error('Invalid product ID', 400);
-    $auth   = vendorMiddleware();
+    $auth = authMiddleware();
+    if ($auth['role'] === 'admin' || $auth['role'] === 'owner') {
+        $allowed = ['name','description','mrp','selling_price','stock_qty','unit','is_active','is_featured','hsn_code','gst_rate','sku','product_code','category_id'];
+        $sets = []; $params = [];
+        foreach ($allowed as $f) {
+            if (array_key_exists($f, $body)) { $sets[] = "$f=?"; $params[] = $body[$f]; }
+        }
+        if (!$sets) Response::error('Nothing to update');
+        $params[] = $id;
+        $db->query("UPDATE products SET " . implode(',', $sets) . ", updated_at=NOW() WHERE id=?", ...$params);
+        Response::success('Product updated');
+    }
     $vendor = $db->fetchOne("SELECT id FROM vendors WHERE user_id=? AND status='approved'", $auth['user_id']);
     if (!$vendor) Response::error('Vendor not approved', 403);
     if (!$db->fetchOne("SELECT id FROM products WHERE id=? AND vendor_id=?", $id, $vendor['id']))

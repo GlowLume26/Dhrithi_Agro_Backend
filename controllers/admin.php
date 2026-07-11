@@ -194,11 +194,16 @@ if ($method === 'GET' && $section === 'customers') {
     $page   = max(1, (int)($_GET['page'] ?? 1));
     $offset = ($page - 1) * $PAGE_LIMIT;
     $search = trim($_GET['search'] ?? '');
+    $city   = trim($_GET['city'] ?? '');
     $where = []; $params = [];
     if ($search) {
         $where[]     = "(u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.email ILIKE ? OR u.mobile ILIKE ? OR ca.city ILIKE ? OR ca.state ILIKE ? OR ca.district ILIKE ? OR c.customer_code ILIKE ?)";
         $s           = "%$search%";
         $params      = array_merge($params, [$s,$s,$s,$s,$s,$s,$s,$s]);
+    }
+    if ($city) {
+        $where[] = 'ca.city ILIKE ?';
+        $params[] = "%$city%";
     }
     $whereStr = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     $total = ($db->fetchOne(
@@ -298,9 +303,12 @@ if ($method === 'DELETE' && $section === 'offers') {
 // GET admin users
 if ($method === 'GET' && $section === 'admins') {
     $admins = $db->fetchAll(
-        "SELECT id, first_name||' '||last_name AS name, email, role, is_active, created_at
+        "SELECT id, first_name||' '||last_name AS name, email, role, is_active, permissions, created_at
          FROM users WHERE role IN ('admin','owner','superadmin') ORDER BY created_at DESC"
     );
+    foreach ($admins as &$a) {
+        $a['permissions'] = !empty($a['permissions']) ? json_decode($a['permissions'], true) : null;
+    }
     Response::success('Admins fetched', $admins);
 }
 
@@ -312,11 +320,12 @@ if ($method === 'POST' && $section === 'admins') {
     if ($db->fetchOne("SELECT id FROM users WHERE email=?", $body['email'])) Response::error('Email already exists');
     $parts = explode(' ', trim($body['name']), 2);
     $id    = $db->fetchOne("SELECT gen_random_uuid() AS id")['id'];
+    $perms = isset($body['permissions']) ? json_encode($body['permissions']) : null;
     $db->query(
-        "INSERT INTO users (id, first_name, last_name, email, password_hash, role, is_active)
-         VALUES (?,?,?,?,?,?,TRUE)",
+        "INSERT INTO users (id, first_name, last_name, email, password_hash, role, is_active, permissions)
+         VALUES (?,?,?,?,?,?,TRUE,?)",
         $id, $parts[0], $parts[1] ?? '', $body['email'],
-        password_hash($body['password'], PASSWORD_DEFAULT), $body['role']
+        password_hash($body['password'], PASSWORD_DEFAULT), $body['role'], $perms
     );
     Response::success('Admin created', ['id' => $id], 201);
 }
@@ -331,10 +340,11 @@ if ($method === 'PUT' && $section === 'admins') {
         $sets[] = 'first_name=?'; $params[] = $parts[0];
         $sets[] = 'last_name=?';  $params[] = $parts[1] ?? '';
     }
-    if (!empty($body['email']))    { $sets[] = 'email=?';         $params[] = $body['email']; }
-    if (!empty($body['password'])) { $sets[] = 'password_hash=?'; $params[] = password_hash($body['password'], PASSWORD_DEFAULT); }
-    if (!empty($body['role']))     { $sets[] = 'role=?';          $params[] = $body['role']; }
-    if (isset($body['is_active'])) { $sets[] = 'is_active=?';     $params[] = $body['is_active'] ? 'TRUE' : 'FALSE'; }
+    if (!empty($body['email']))       { $sets[] = 'email=?';         $params[] = $body['email']; }
+    if (!empty($body['password']))    { $sets[] = 'password_hash=?'; $params[] = password_hash($body['password'], PASSWORD_DEFAULT); }
+    if (!empty($body['role']))        { $sets[] = 'role=?';          $params[] = $body['role']; }
+    if (isset($body['is_active']))    { $sets[] = 'is_active=?';     $params[] = $body['is_active'] ? 'TRUE' : 'FALSE'; }
+    if (isset($body['permissions']))  { $sets[] = 'permissions=?';   $params[] = json_encode($body['permissions']); }
     if (!$sets) Response::error('Nothing to update');
     $params[] = $adminId;
     $db->query("UPDATE users SET " . implode(',', $sets) . " WHERE id=?", ...$params);
