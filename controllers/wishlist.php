@@ -34,9 +34,15 @@ if ($method === 'POST') {
 }
 
 if ($method === 'DELETE') {
+    $id = $_GET['id'] ?? '';
     $productId = $_GET['product_id'] ?? '';
-    if (!$productId) Response::error('Product ID required');
-    $db->query("DELETE FROM wishlist WHERE customer_id=? AND product_id=?", $customer['id'], $productId);
+    if ($id) {
+        $db->query("DELETE FROM wishlist WHERE id=? AND customer_id=?", $id, $customer['id']);
+    } elseif ($productId) {
+        $db->query("DELETE FROM wishlist WHERE customer_id=? AND product_id=?", $customer['id'], $productId);
+    } else {
+        Response::error('ID required');
+    }
     Response::success('Removed from wishlist');
 }
 
