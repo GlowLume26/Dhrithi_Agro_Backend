@@ -91,8 +91,8 @@ if ($method === 'GET' && $id) {
 if ($method === 'POST') {
     $auth = authMiddleware();
     if ($auth['role'] === 'admin' || $auth['role'] === 'owner') {
-        $vendor = null;
         $vendorId = $body['vendor_id'] ?? null;
+        if (!$vendorId) Response::error('vendor_id is required when creating a product as admin', 400);
     } else {
         $vendor = $db->fetchOne("SELECT id FROM vendors WHERE user_id=? AND status='approved'", $auth['user_id']);
         if (!$vendor) Response::error('Vendor not approved', 403);
@@ -115,7 +115,8 @@ if ($method === 'POST') {
         (float)$body['mrp'], (float)$body['selling_price'], (int)$body['stock_qty'],
         $body['unit'] ?? 'Piece', $body['hsn_code'] ?? '', (float)($body['gst_rate'] ?? 5.00)
     );
-    $db->query("INSERT INTO inventory (id,product_id,current_stock,low_stock_threshold) VALUES (gen_random_uuid(),?,?,10)",
+    $db->query("INSERT INTO inventory (id,product_id,current_stock,low_stock_threshold) VALUES (gen_random_uuid(),?,?,10)
+         ON CONFLICT (product_id) DO UPDATE SET current_stock=EXCLUDED.current_stock",
         $productId, (int)$body['stock_qty']);
 
     if (!empty($_FILES['images'])) {

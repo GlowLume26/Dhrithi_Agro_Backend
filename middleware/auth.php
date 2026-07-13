@@ -2,8 +2,13 @@
 require_once __DIR__ . '/../helpers/helpers.php';
 
 function authMiddleware(): array {
-    $headers = getallheaders();
-    $auth    = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+    $auth = $_SERVER['HTTP_AUTHORIZATION']
+         ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+         ?? '';
+    if (!$auth && function_exists('getallheaders')) {
+        $h    = getallheaders();
+        $auth = $h['Authorization'] ?? $h['authorization'] ?? '';
+    }
     if (!$auth || !str_starts_with($auth, 'Bearer ')) {
         Response::error('Unauthorized — token missing', 401);
     }

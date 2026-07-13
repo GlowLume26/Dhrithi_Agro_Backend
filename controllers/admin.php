@@ -33,7 +33,7 @@ if ($method === 'GET' && $section === 'dashboard') {
          ORDER BY o.created_at DESC LIMIT 10"
     );
     $monthlyRevenue = $db->fetchAll(
-        "SELECT TO_CHAR(created_at,'Mon YYYY') AS month, SUM(final_amount) AS revenue, COUNT(*) AS orders
+        "SELECT TO_CHAR(DATE_TRUNC('month', created_at),'Mon YYYY') AS month, SUM(final_amount) AS revenue, COUNT(*) AS orders
          FROM orders WHERE payment_status='paid' AND created_at >= NOW() - INTERVAL '6 months'
          GROUP BY DATE_TRUNC('month', created_at) ORDER BY DATE_TRUNC('month', created_at)"
     );
