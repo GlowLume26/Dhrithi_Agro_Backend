@@ -21,4 +21,4 @@ services:
       - key: JWT_EXPIRY
         value: "86400"
       - key: APP_URL
-        value: https://drithi-agro-backend.onrender.com
+        value: https://dhrithi-agro-backend-2.onrender.com
