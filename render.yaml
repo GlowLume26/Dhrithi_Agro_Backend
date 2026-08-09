@@ -5,15 +5,15 @@ services:
     dockerfilePath: ./Dockerfile
     envVars:
       - key: DB_HOST
-        value: dpg-d9lgleu417fc73cs995g-a.singapore-postgres.render.com
+        value: dpg-d9s1if2jnfac738kstt0-a.singapore-postgres.render.com
       - key: DB_PORT
         value: "5432"
       - key: DB_NAME
-        value: drithi_agro
+        value: drithi_agro_uv0v
       - key: DB_USER
-        value: drithi_agro_user
+        value: drithi_agro_uv0v_user
       - key: DB_PASS
-        value: OZR7IMxb19gBoyq6g2MdaAydfKNeDtTQ
+        value: oYPKcuzlzSF5mvCIFQrr4I9quYJC0Z5p
       - key: JWT_SECRET
         value: dr!th!Agr0#2025$S3cur3K3y@xAmPP^JWT&S3cr3t
       - key: JWT_EXPIRY
