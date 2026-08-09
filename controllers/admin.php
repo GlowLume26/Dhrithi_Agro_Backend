@@ -9,11 +9,8 @@ $auth    = adminMiddleware();
 $section = $_GET['section'] ?? '';
 $action  = $_GET['action'] ?? '';
 
-$settingsRows = $db->fetchAll("SELECT key, value FROM app_settings WHERE key IN ('page_limit','inventory_limit')");
-$cfg = [];
-foreach ($settingsRows as $r) $cfg[$r['key']] = $r['value'];
-$PAGE_LIMIT      = (int)($cfg['page_limit']      ?? 20);
-$INVENTORY_LIMIT = (int)($cfg['inventory_limit'] ?? 100);
+$PAGE_LIMIT      = 20;
+$INVENTORY_LIMIT = 100;
 
 // GET dashboard
 if ($method === 'GET' && $section === 'dashboard') {
@@ -125,8 +122,7 @@ if ($method === 'GET' && $section === 'orders') {
         $orders = $db->fetchAll(
             "SELECT DISTINCT o.id, o.order_number, o.final_amount, o.order_status, o.payment_status, o.created_at,
                     u.first_name||' '||u.last_name AS customer_name,
-                    ca.address_line1, ca.address_line2, ca.city, ca.state, ca.pincode, ca.mobile,
-                    p.category_id, cat.name AS category_name
+                    ca.address_line1, ca.address_line2, ca.city, ca.state, ca.pincode, ca.mobile
              FROM orders o
              JOIN customers c ON o.customer_id=c.id
              JOIN users u ON c.user_id=u.id
@@ -197,9 +193,9 @@ if ($method === 'GET' && $section === 'customers') {
     $city   = trim($_GET['city'] ?? '');
     $where = []; $params = [];
     if ($search) {
-        $where[]     = "(u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.email ILIKE ? OR u.mobile ILIKE ? OR ca.city ILIKE ? OR ca.state ILIKE ? OR ca.district ILIKE ? OR c.customer_code ILIKE ?)";
+        $where[]     = "(u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.email ILIKE ? OR u.mobile ILIKE ? OR ca.city ILIKE ? OR ca.state ILIKE ? OR c.customer_code ILIKE ?)";
         $s           = "%$search%";
-        $params      = array_merge($params, [$s,$s,$s,$s,$s,$s,$s,$s]);
+        $params      = array_merge($params, [$s,$s,$s,$s,$s,$s,$s]);
     }
     if ($city) {
         $where[] = 'ca.city ILIKE ?';
@@ -216,7 +212,7 @@ if ($method === 'GET' && $section === 'customers') {
     $customers = $db->fetchAll(
         "SELECT c.id, c.customer_code, c.total_orders, c.total_spent, c.loyalty_points, c.created_at,
                 u.first_name, u.last_name, u.email, u.mobile, u.is_active,
-                ca.city, ca.state, ca.district
+                ca.city, ca.state
          FROM customers c
          JOIN users u ON c.user_id=u.id
          LEFT JOIN customer_addresses ca ON ca.customer_id=c.id AND ca.is_default=TRUE
@@ -236,7 +232,7 @@ if ($method === 'GET' && $section === 'inventory') {
     $items = $db->fetchAll(
         "SELECT p.id, p.name, p.sku, p.stock_qty AS available, p.sold_count AS sold,
                 COALESCE(i.low_stock_threshold, 10) AS threshold,
-                COALESCE(i.reserved_stock, 0) AS reserved
+                0 AS reserved
          FROM products p LEFT JOIN inventory i ON i.product_id=p.id
          WHERE p.is_active=TRUE $extraWhere
          ORDER BY p.stock_qty ASC LIMIT $INVENTORY_LIMIT",
@@ -268,11 +264,10 @@ if ($method === 'POST' && $section === 'offers') {
     if ($err) Response::error($err);
     $id = $db->fetchOne("SELECT gen_random_uuid() AS id")['id'];
     $db->query(
-        "INSERT INTO banners (id, title, image_url, link_url, start_date, end_date, is_active)
-         VALUES (?,?,?,?,?,?,TRUE)",
+        "INSERT INTO banners (id, title, image_url, link_url, is_active)
+         VALUES (?,?,?,?,TRUE)",
         $id, $body['name'], $body['image'] ?? '',
-        $body['redirect_product'] ?? $body['redirect_category'] ?? '',
-        $body['start'] ?? null, $body['end'] ?? null
+        $body['redirect_product'] ?? $body['redirect_category'] ?? ''
     );
     Response::success('Offer created', ['id' => $id], 201);
 }
@@ -281,7 +276,7 @@ if ($method === 'POST' && $section === 'offers') {
 if ($method === 'PUT' && $section === 'offers') {
     $offerId = $_GET['id'] ?? '';
     if (!$offerId || !Validator::uuid($offerId)) Response::error('Valid Offer ID required');
-    $map = ['name'=>'title','image'=>'image_url','start'=>'start_date','end'=>'end_date','is_active'=>'is_active'];
+    $map = ['name'=>'title','image'=>'image_url','is_active'=>'is_active'];
     $sets = []; $params = [];
     foreach ($map as $from => $to) {
         if (array_key_exists($from, $body)) { $sets[] = "$to=?"; $params[] = $body[$from]; }
@@ -303,12 +298,10 @@ if ($method === 'DELETE' && $section === 'offers') {
 // GET admin users
 if ($method === 'GET' && $section === 'admins') {
     $admins = $db->fetchAll(
-        "SELECT id, first_name||' '||last_name AS name, email, role, is_active, permissions, created_at
+        "SELECT id, first_name||' '||last_name AS name, email, role, is_active, created_at
          FROM users WHERE role IN ('admin','owner','superadmin') ORDER BY created_at DESC"
     );
-    foreach ($admins as &$a) {
-        $a['permissions'] = !empty($a['permissions']) ? json_decode($a['permissions'], true) : null;
-    }
+    foreach ($admins as &$a) { $a['permissions'] = null; }
     Response::success('Admins fetched', $admins);
 }
 
@@ -320,12 +313,11 @@ if ($method === 'POST' && $section === 'admins') {
     if ($db->fetchOne("SELECT id FROM users WHERE email=?", $body['email'])) Response::error('Email already exists');
     $parts = explode(' ', trim($body['name']), 2);
     $id    = $db->fetchOne("SELECT gen_random_uuid() AS id")['id'];
-    $perms = isset($body['permissions']) ? json_encode($body['permissions']) : null;
     $db->query(
-        "INSERT INTO users (id, first_name, last_name, email, password_hash, role, is_active, permissions)
-         VALUES (?,?,?,?,?,?,TRUE,?)",
+        "INSERT INTO users (id, first_name, last_name, email, password_hash, role, is_active)
+         VALUES (?,?,?,?,?,?,TRUE)",
         $id, $parts[0], $parts[1] ?? '', $body['email'],
-        password_hash($body['password'], PASSWORD_DEFAULT), $body['role'], $perms
+        password_hash($body['password'], PASSWORD_DEFAULT), $body['role']
     );
     Response::success('Admin created', ['id' => $id], 201);
 }
@@ -344,7 +336,6 @@ if ($method === 'PUT' && $section === 'admins') {
     if (!empty($body['password']))    { $sets[] = 'password_hash=?'; $params[] = password_hash($body['password'], PASSWORD_DEFAULT); }
     if (!empty($body['role']))        { $sets[] = 'role=?';          $params[] = $body['role']; }
     if (isset($body['is_active']))    { $sets[] = 'is_active=?';     $params[] = $body['is_active'] ? 'TRUE' : 'FALSE'; }
-    if (isset($body['permissions']))  { $sets[] = 'permissions=?';   $params[] = json_encode($body['permissions']); }
     if (!$sets) Response::error('Nothing to update');
     $params[] = $adminId;
     $db->query("UPDATE users SET " . implode(',', $sets) . " WHERE id=?", ...$params);
