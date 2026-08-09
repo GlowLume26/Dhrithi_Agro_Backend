@@ -1,4 +1,3 @@
-.env
 uploads/*
 !uploads/.gitkeep
 database/demo_seed.php
