@@ -8,8 +8,8 @@ WORKDIR /var/www
 
 COPY . .
 
-RUN if [ -f .env ]; then sed -i 's/\r//' .env; fi
+RUN find /var/www -name '*.env' -exec sed -i 's/\r//' {} \;
 
-EXPOSE 8080
+EXPOSE 10000
 
-CMD ["sh", "-c", "php -S 0.0.0.0:${PORT:-8080} -t /var/www"]
+CMD ["sh", "-c", "php -S 0.0.0.0:${PORT:-10000} -t /var/www"]

@@ -4,6 +4,8 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     envVars:
+      - key: PORT
+        value: "10000"
       - key: DB_HOST
         value: dpg-d9s1if2jnfac738kstt0-a.singapore-postgres.render.com
       - key: DB_PORT
