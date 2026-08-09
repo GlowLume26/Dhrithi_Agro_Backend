@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: drithi-agro-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DB_HOST
+        value: dpg-d9lgleu417fc73cs995g-a.singapore-postgres.render.com
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        value: drithi_agro
+      - key: DB_USER
+        value: drithi_agro_user
+      - key: DB_PASS
+        value: OZR7IMxb19gBoyq6g2MdaAydfKNeDtTQ
+      - key: JWT_SECRET
+        value: dr!th!Agr0#2025$S3cur3K3y@xAmPP^JWT&S3cr3t
+      - key: JWT_EXPIRY
+        value: "86400"
+      - key: APP_URL
+        value: https://drithi-agro-backend.onrender.com
