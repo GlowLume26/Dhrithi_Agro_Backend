@@ -2,9 +2,6 @@
 -- DRITHI AGRO MARKETPLACE - PostgreSQL DATABASE SCHEMA
 -- ============================================================
 
-CREATE DATABASE drithi_agro;
-\c drithi_agro;
-
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 1. USERS

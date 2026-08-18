@@ -14,7 +14,7 @@ VALUES (
     'owner@drithiagro.com',
     '9000000001',
     '$2y$12$rW1daBj3BM1E.vXWDa8qOO5p8d5HmdHHN7bJr4LOgPbz6nE3z5x6e',
-    'owner',
+    'admin',
     TRUE
 );
 

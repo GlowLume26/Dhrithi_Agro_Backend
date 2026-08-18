@@ -56,7 +56,9 @@ class Database {
     private PDO $conn;
 
     private function __construct() {
-        $dsn = 'pgsql:host='.DB_HOST.';port='.DB_PORT.';dbname='.DB_NAME.';sslmode=require';
+        $isLocal = in_array(DB_HOST, ['localhost', '127.0.0.1']);
+        $sslmode  = $isLocal ? 'disable' : 'require';
+        $dsn = 'pgsql:host='.DB_HOST.';port='.DB_PORT.';dbname='.DB_NAME.';sslmode='.$sslmode;
         try {
             $this->conn = new PDO($dsn, DB_USER, DB_PASS, [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,

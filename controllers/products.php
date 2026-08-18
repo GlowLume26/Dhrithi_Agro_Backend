@@ -119,18 +119,14 @@ if ($method === 'POST') {
          ON CONFLICT (product_id) DO UPDATE SET current_stock=EXCLUDED.current_stock",
         $productId, (int)$body['stock_qty']);
 
-    if (!empty($_FILES['images'])) {
-        $files = $_FILES['images'];
-        $count = is_array($files['name']) ? count($files['name']) : 1;
-        for ($i = 0; $i < min($count, 5); $i++) {
-            $file = is_array($files['name'])
-                ? ['name'=>$files['name'][$i],'tmp_name'=>$files['tmp_name'][$i],'size'=>$files['size'][$i],'error'=>$files['error'][$i]]
-                : $files;
-            try {
-                $url = FileUpload::upload($file, 'products');
-                $db->query("INSERT INTO product_images (id,product_id,image_url,is_primary,sort_order) VALUES (gen_random_uuid(),?,?,?,?)",
-                    $productId, $url, ($i === 0) ? 'TRUE' : 'FALSE', $i);
-            } catch (Exception $e) {}
+    // Save Cloudinary image URLs sent from frontend
+    if (!empty($body['images']) && is_array($body['images'])) {
+        foreach (array_slice($body['images'], 0, 8) as $i => $imgUrl) {
+            if (!filter_var($imgUrl, FILTER_VALIDATE_URL)) continue;
+            $db->query(
+                "INSERT INTO product_images (id,product_id,image_url,is_primary,sort_order) VALUES (gen_random_uuid(),?,?,?,?)",
+                $productId, $imgUrl, ($i === 0) ? 'TRUE' : 'FALSE', $i
+            );
         }
     }
     $db->commit();
