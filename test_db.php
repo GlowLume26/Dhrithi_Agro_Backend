@@ -1,17 +1,15 @@
 <?php
-$envFile = __DIR__ . '/.env';
-foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-    if (str_starts_with(trim($line), '#') || !str_contains($line, '=')) continue;
-    [$k, $v] = explode('=', $line, 2);
-    putenv(trim($k) . '=' . trim($v));
-}
-$host = getenv('DB_HOST');
-$port = getenv('DB_PORT') ?: '5432';
-$user = getenv('DB_USER');
-$pass = getenv('DB_PASS');
-$name = getenv('DB_NAME');
+$host = $_ENV['DB_HOST'] ?? getenv('DB_HOST') ?? 'NOT SET';
+$port = $_ENV['DB_PORT'] ?? getenv('DB_PORT') ?? '5432';
+$user = $_ENV['DB_USER'] ?? getenv('DB_USER') ?? 'NOT SET';
+$pass = $_ENV['DB_PASS'] ?? getenv('DB_PASS') ?? 'NOT SET';
+$name = $_ENV['DB_NAME'] ?? getenv('DB_NAME') ?? 'NOT SET';
 
-echo "Connecting to: $host:$port/$name as $user\n";
+echo "DB_HOST: $host\n";
+echo "DB_PORT: $port\n";
+echo "DB_NAME: $name\n";
+echo "DB_USER: $user\n";
+echo "DB_PASS: " . (strlen($pass) > 4 ? substr($pass,0,4).'****' : $pass) . "\n\n";
 
 foreach (['sslmode=require','sslmode=prefer','sslmode=disable'] as $ssl) {
     $dsn = "pgsql:host=$host;port=$port;dbname=$name;$ssl";
