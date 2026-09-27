@@ -1,11 +1,9 @@
 <?php
-putenv('OPENSSL_CONF=C:\\xampp\\apache\\conf\\openssl.cnf');
-
-$host = 'dpg-d9lgleu417fc73cs995g-a.singapore-postgres.render.com';
+$host = 'dpg-d9s1if2jnfac738kstt0-a.singapore-postgres.render.com';
 $port = '5432';
-$db   = 'drithi_agro';
-$user = 'drithi_agro_user';
-$pass = 'OZR7IMxb19gBoyq6g2MdaAydfKNeDtTQ';
+$db   = 'drithi_agro_uv0v';
+$user = 'drithi_agro_uv0v_user';
+$pass = 'oYPKcuzlzSF5mvCIFQrr4I9quYJC0Z5p';
 
 try {
     $dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=require";
