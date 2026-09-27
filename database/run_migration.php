@@ -1,12 +1,12 @@
 <?php
-$host = 'dpg-dasi1sgu01pc73c558sg-a';
+$host = 'dpg-dasi1sgu01pc73c558sg-a.singapore-postgres.render.com';
 $port = '5432';
 $db   = 'drithi_agro_uv0v_l5h2';
 $user = 'drithi_agro_uv0v_user';
 $pass = 'h4T0ntouUW9hoayO7xDdilO1KxbXH4Qh';
 
 try {
-    $dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=disable";
+    $dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=require";
     $pdo = new PDO($dsn, $user, $pass, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     ]);
