@@ -1,9 +1,9 @@
 <?php
-$host = 'dpg-d9s1if2jnfac738kstt0-a';
+$host = 'dpg-dasi1sgu01pc73c558sg-a';
 $port = '5432';
-$db   = 'drithi_agro_uv0v';
+$db   = 'drithi_agro_uv0v_l5h2';
 $user = 'drithi_agro_uv0v_user';
-$pass = 'oYPKcuzlzSF5mvCIFQrr4I9quYJC0Z5p';
+$pass = 'h4T0ntouUW9hoayO7xDdilO1KxbXH4Qh';
 
 try {
     $dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=disable";
