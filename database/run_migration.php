@@ -15,28 +15,35 @@ try {
     die("Connection failed: " . $e->getMessage() . "\n");
 }
 
-$files = ['schema_pg.sql', 'render_migration.sql', 'admin_seed.sql'];
+$files = ['render_migration.sql', 'admin_seed.sql'];
 $sql = '';
 foreach ($files as $f) {
     $path = __DIR__ . '/' . $f;
     if (file_exists($path)) $sql .= file_get_contents($path) . "\n";
 }
 
-// Split on semicolons but keep $$ blocks intact
+// Split SQL respecting $$ dollar-quoted blocks
 $statements = [];
-$buffer = '';
-$inDollar = false;
+$buffer     = '';
+$inDollar   = false;
+$i          = 0;
+$chars      = $sql;
+$len        = strlen($chars);
 
-foreach (explode("\n", $sql) as $line) {
-    $trimmed = trim($line);
-    if (str_contains($trimmed, '$$')) {
-        $count = substr_count($trimmed, '$$');
-        if ($count % 2 !== 0) $inDollar = !$inDollar;
+while ($i < $len) {
+    // detect $$ toggle
+    if ($i + 1 < $len && $chars[$i] === '$' && $chars[$i+1] === '$') {
+        $inDollar = !$inDollar;
+        $buffer  .= '$$';
+        $i       += 2;
+        continue;
     }
-    $buffer .= $line . "\n";
-    if (!$inDollar && str_ends_with(rtrim($line), ';')) {
+    $ch      = $chars[$i];
+    $buffer .= $ch;
+    $i++;
+    if (!$inDollar && $ch === ';') {
         $stmt = trim($buffer);
-        if ($stmt && !str_starts_with($stmt, '--')) {
+        if ($stmt !== '' && !preg_match('/^--/', $stmt)) {
             $statements[] = $stmt;
         }
         $buffer = '';
