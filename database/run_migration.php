@@ -15,15 +15,67 @@ try {
 }
 
 $sql = file_get_contents(__DIR__ . '/render_migration.sql');
-echo "SQL file size: " . strlen($sql) . " bytes\n";
-echo "First 200 chars: " . substr($sql, 0, 200) . "\n\n";
 
-// Check if CREATE TABLE users exists in file
-if (strpos($sql, 'CREATE TABLE IF NOT EXISTS users') !== false) {
-    echo "✓ CREATE TABLE users found in SQL file\n";
-} else {
-    echo "✗ CREATE TABLE users NOT found in SQL file\n";
+// Strip -- line comments
+$lines = explode("\n", $sql);
+$cleaned = [];
+foreach ($lines as $line) {
+    $stripped = preg_replace('/--.*$/', '', $line);
+    $cleaned[] = $stripped;
+}
+$sql = implode("\n", $cleaned);
+
+// Replace bcrypt hashes to avoid $$ confusion
+$hashes = [];
+$sql = preg_replace_callback('/\'\$2[ayb]\$[^\']+\'/', function($m) use (&$hashes) {
+    $key = 'HASH' . count($hashes) . 'PLACEHOLDER';
+    $hashes[$key] = $m[0];
+    return "'$key'";
+}, $sql);
+
+// Split respecting $$ dollar-quoted blocks
+$statements = [];
+$buffer     = '';
+$inDollar   = false;
+$i          = 0;
+$len        = strlen($sql);
+
+while ($i < $len) {
+    if ($i + 1 < $len && $sql[$i] === '$' && $sql[$i+1] === '$') {
+        $inDollar = !$inDollar;
+        $buffer  .= '$$';
+        $i       += 2;
+        continue;
+    }
+    $ch      = $sql[$i];
+    $buffer .= $ch;
+    $i++;
+    if (!$inDollar && $ch === ';') {
+        $stmt = trim($buffer);
+        if ($stmt !== '') {
+            foreach ($hashes as $k => $v) {
+                $stmt = str_replace("'$k'", $v, $stmt);
+            }
+            $statements[] = $stmt;
+        }
+        $buffer = '';
+    }
 }
 
-// Check encoding
-echo "BOM check: " . bin2hex(substr($sql, 0, 3)) . "\n";
+echo "Total statements found: " . count($statements) . "\n\n";
+
+$ok = 0; $fail = 0;
+foreach ($statements as $stmt) {
+    $clean = trim($stmt);
+    if (!$clean) continue;
+    try {
+        $pdo->exec($clean);
+        echo "OK: " . substr(preg_replace('/\s+/', ' ', $clean), 0, 80) . "\n";
+        $ok++;
+    } catch (PDOException $e) {
+        echo "ERR: " . $e->getMessage() . "\n";
+        $fail++;
+    }
+}
+
+echo "\nDone. OK=$ok  ERR=$fail\n";
