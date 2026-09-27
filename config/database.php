@@ -1,5 +1,5 @@
 <?php
-// ── Load .env ──
+// ── Load .env file (local dev only) ──
 $envFile = __DIR__ . '/../.env';
 if (file_exists($envFile)) {
     foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
@@ -7,39 +7,46 @@ if (file_exists($envFile)) {
         if (str_starts_with($line, '#') || !str_contains($line, '=')) continue;
         [$k, $v] = explode('=', $line, 2);
         $k = trim($k);
-        // Strip inline comments, but preserve spaces inside the value
         $v = trim(explode(' #', $v)[0]);
-        $_ENV[$k] = $v;
-        putenv("$k=$v");
+        // Only set if not already set by server environment
+        if (!isset($_ENV[$k]) && getenv($k) === false) {
+            $_ENV[$k] = $v;
+            putenv("$k=$v");
+        }
     }
 }
 
-define('DB_HOST', $_ENV['DB_HOST'] ?? 'localhost');
-define('DB_PORT', $_ENV['DB_PORT'] ?? '5432');
-define('DB_USER', $_ENV['DB_USER'] ?? 'postgres');
-define('DB_PASS', $_ENV['DB_PASS'] ?? '');
-define('DB_NAME', $_ENV['DB_NAME'] ?? 'drithi_agro');
+// Merge server env vars into $_ENV
+foreach ($_SERVER as $k => $v) {
+    if (!isset($_ENV[$k])) $_ENV[$k] = $v;
+}
 
-define('JWT_SECRET',  $_ENV['JWT_SECRET']  ?? 'change-me');
-define('JWT_EXPIRY',  (int)($_ENV['JWT_EXPIRY'] ?? 86400));
+define('DB_HOST', $_ENV['DB_HOST'] ?? getenv('DB_HOST') ?: 'localhost');
+define('DB_PORT', $_ENV['DB_PORT'] ?? getenv('DB_PORT') ?: '5432');
+define('DB_USER', $_ENV['DB_USER'] ?? getenv('DB_USER') ?: 'postgres');
+define('DB_PASS', $_ENV['DB_PASS'] ?? getenv('DB_PASS') ?: '');
+define('DB_NAME', $_ENV['DB_NAME'] ?? getenv('DB_NAME') ?: 'drithi_agro');
 
-define('APP_URL',      $_ENV['APP_URL']      ?? 'http://localhost/drithi-agro-backend');
+define('JWT_SECRET',  $_ENV['JWT_SECRET']  ?? getenv('JWT_SECRET')  ?: 'change-me');
+define('JWT_EXPIRY',  (int)($_ENV['JWT_EXPIRY'] ?? getenv('JWT_EXPIRY') ?: 86400));
+
+define('APP_URL',      $_ENV['APP_URL']      ?? getenv('APP_URL')      ?: 'http://localhost/drithi-agro-backend');
 define('UPLOAD_PATH',  __DIR__ . '/../uploads/');
 define('UPLOAD_URL',   APP_URL . '/uploads/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024);
 
-define('OTP_EXPIRY_MINUTES', (int)($_ENV['OTP_EXPIRY_MINUTES'] ?? 10));
-define('OTP_LENGTH',         (int)($_ENV['OTP_LENGTH']         ?? 6));
+define('OTP_EXPIRY_MINUTES', (int)($_ENV['OTP_EXPIRY_MINUTES'] ?? getenv('OTP_EXPIRY_MINUTES') ?: 10));
+define('OTP_LENGTH',         (int)($_ENV['OTP_LENGTH']         ?? getenv('OTP_LENGTH')         ?: 6));
 
-define('SMTP_HOST',      $_ENV['SMTP_HOST']      ?? 'smtp.gmail.com');
-define('SMTP_PORT',      (int)($_ENV['SMTP_PORT'] ?? 587));
-define('SMTP_USER',      $_ENV['SMTP_USER']      ?? '');
-define('SMTP_PASS',      $_ENV['SMTP_PASS']      ?? '');
-define('SMTP_FROM_NAME', $_ENV['SMTP_FROM_NAME'] ?? 'Drithi Agro');
+define('SMTP_HOST',      $_ENV['SMTP_HOST']      ?? getenv('SMTP_HOST')      ?: 'smtp.gmail.com');
+define('SMTP_PORT',      (int)($_ENV['SMTP_PORT'] ?? getenv('SMTP_PORT')     ?: 587));
+define('SMTP_USER',      $_ENV['SMTP_USER']      ?? getenv('SMTP_USER')      ?: '');
+define('SMTP_PASS',      $_ENV['SMTP_PASS']      ?? getenv('SMTP_PASS')      ?: '');
+define('SMTP_FROM_NAME', $_ENV['SMTP_FROM_NAME'] ?? getenv('SMTP_FROM_NAME') ?: 'Drithi Agro');
 
-define('FAST2SMS_API_KEY',   $_ENV['FAST2SMS_API_KEY']   ?? '');
-define('RAZORPAY_KEY_ID',    $_ENV['RAZORPAY_KEY_ID']    ?? '');
-define('RAZORPAY_KEY_SECRET',$_ENV['RAZORPAY_KEY_SECRET']?? '');
+define('FAST2SMS_API_KEY',    $_ENV['FAST2SMS_API_KEY']    ?? getenv('FAST2SMS_API_KEY')    ?: '');
+define('RAZORPAY_KEY_ID',     $_ENV['RAZORPAY_KEY_ID']     ?? getenv('RAZORPAY_KEY_ID')     ?: '');
+define('RAZORPAY_KEY_SECRET', $_ENV['RAZORPAY_KEY_SECRET'] ?? getenv('RAZORPAY_KEY_SECRET') ?: '');
 
 class Database {
     private static ?Database $instance = null;
