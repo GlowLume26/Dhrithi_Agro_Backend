@@ -1,3 +1,9 @@
 uploads/*
 !uploads/.gitkeep
 database/demo_seed.php
+.env
+.env.local
+vendor/
+logs/
+*.log
+pgpass.conf

@@ -34,7 +34,13 @@ if ($method === 'GET' && $section === 'dashboard') {
          FROM orders WHERE payment_status='paid' AND created_at >= NOW() - INTERVAL '6 months'
          GROUP BY DATE_TRUNC('month', created_at) ORDER BY DATE_TRUNC('month', created_at)"
     );
-    Response::success('Dashboard fetched', compact('stats', 'recentOrders', 'monthlyRevenue'));
+    $lowStock = $db->fetchAll(
+        "SELECT p.id, p.name, p.stock_qty AS stock, COALESCE(i.low_stock_threshold,10) AS threshold
+         FROM products p LEFT JOIN inventory i ON i.product_id=p.id
+         WHERE p.is_active=TRUE AND p.stock_qty <= COALESCE(i.low_stock_threshold,10)
+         ORDER BY p.stock_qty ASC LIMIT 8"
+    );
+    Response::success('Dashboard fetched', compact('stats', 'recentOrders', 'monthlyRevenue', 'lowStock'));
 }
 
 // GET vendors
@@ -99,23 +105,26 @@ if ($method === 'GET' && $section === 'orders') {
         $offset = ($page - 1) * $PAGE_LIMIT;
         $status         = strtolower($_GET['status'] ?? '');
         $category_id    = $_GET['category_id'] ?? '';
-        $subcategory_id = $_GET['subcategory_id'] ?? '';
         $date           = $_GET['date'] ?? '';
+        $search         = trim($_GET['search'] ?? '');
+
+        $needsProductJoin = $category_id !== '';
 
         $where = []; $params = [];
-        if ($status)         { $where[] = 'o.order_status=?';   $params[] = $status; }
-        if ($category_id)    { $where[] = 'p.category_id=?';    $params[] = $category_id; }
-        if ($subcategory_id) { $where[] = 'p.category_id=?';    $params[] = $subcategory_id; }
-        if ($date)           { $where[] = 'DATE(o.created_at)=?'; $params[] = $date; }
+        if ($status)      { $where[] = 'o.order_status=?';    $params[] = $status; }
+        if ($date)        { $where[] = 'DATE(o.created_at)=?'; $params[] = $date; }
+        if ($search)      { $where[] = "(o.order_number ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ?)"; $params[] = "%$search%"; $params[] = "%$search%"; $params[] = "%$search%"; }
+        if ($category_id) { $where[] = 'p.category_id=?'; $params[] = $category_id; }
         $whereStr = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+        $joinProducts = $needsProductJoin ? 'JOIN order_items oi ON oi.order_id=o.id JOIN products p ON oi.product_id=p.id' : '';
 
         $total = ($db->fetchOne(
             "SELECT COUNT(DISTINCT o.id) AS total
              FROM orders o
              JOIN customers c ON o.customer_id=c.id
              JOIN users u ON c.user_id=u.id
-             JOIN order_items oi ON oi.order_id=o.id
-             JOIN products p ON oi.product_id=p.id
+             $joinProducts
              $whereStr", ...$params
         ))['total'] ?? 0;
 
@@ -127,9 +136,7 @@ if ($method === 'GET' && $section === 'orders') {
              JOIN customers c ON o.customer_id=c.id
              JOIN users u ON c.user_id=u.id
              LEFT JOIN customer_addresses ca ON o.address_id=ca.id
-             JOIN order_items oi ON oi.order_id=o.id
-             JOIN products p ON oi.product_id=p.id
-             LEFT JOIN categories cat ON p.category_id=cat.id
+             $joinProducts
              $whereStr
              ORDER BY o.created_at DESC
              LIMIT $PAGE_LIMIT OFFSET $offset",
@@ -175,10 +182,22 @@ if ($method === 'PUT' && $section === 'orders') {
     $status  = strtolower($body['status'] ?? '');
     $allowed = ['confirmed','packed','shipped','out_for_delivery','delivered','cancelled'];
     if (!in_array($status, $allowed)) Response::error('Invalid status');
-    if (!$db->fetchOne("SELECT id FROM orders WHERE id=?", $orderId)) Response::error('Order not found', 404);
+    $order = $db->fetchOne("SELECT id, order_status FROM orders WHERE id=?", $orderId);
+    if (!$order) Response::error('Order not found', 404);
     $db->begin();
     $db->query("UPDATE orders SET order_status=?, updated_at=NOW() WHERE id=?", $status, $orderId);
-    if ($status === 'delivered') $db->query("UPDATE orders SET payment_status='paid' WHERE id=?", $orderId);
+    if ($status === 'delivered') {
+        $db->query("UPDATE orders SET payment_status='paid' WHERE id=?", $orderId);
+    }
+    if ($status === 'cancelled' && !in_array($order['order_status'], ['cancelled','delivered'])) {
+        $items = $db->fetchAll("SELECT product_id, quantity FROM order_items WHERE order_id=?", $orderId);
+        foreach ($items as $item) {
+            $db->query("UPDATE products SET stock_qty=stock_qty+?, sold_count=GREATEST(0,sold_count-?), updated_at=NOW() WHERE id=?",
+                $item['quantity'], $item['quantity'], $item['product_id']);
+            $db->query("UPDATE inventory SET current_stock=current_stock+? WHERE product_id=?",
+                $item['quantity'], $item['product_id']);
+        }
+    }
     $db->query("INSERT INTO order_status_history (id,order_id,status,remarks) VALUES (gen_random_uuid(),?,?,?)",
         $orderId, $status, 'Updated by admin');
     $db->commit();
@@ -301,7 +320,10 @@ if ($method === 'GET' && $section === 'admins') {
         "SELECT id, first_name||' '||last_name AS name, email, role, is_active, created_at
          FROM users WHERE role IN ('admin','owner','superadmin') ORDER BY created_at DESC"
     );
-    foreach ($admins as &$a) { $a['permissions'] = null; }
+    foreach ($admins as &$a) {
+        $perms = $db->fetchAll("SELECT module, granted FROM user_permissions WHERE user_id=?", $a['id']);
+        $a['permissions'] = $perms ? array_column($perms, 'granted', 'module') : null;
+    }
     Response::success('Admins fetched', $admins);
 }
 

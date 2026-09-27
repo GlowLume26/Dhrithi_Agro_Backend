@@ -7,16 +7,18 @@ $method = $_SERVER['REQUEST_METHOD'];
 $body   = json_decode(file_get_contents('php://input'), true) ?? [];
 $auth   = adminMiddleware();
 
-// Only owner can manage permissions
-if ($auth['role'] !== 'owner') Response::error('Access denied — owner only', 403);
+// Only owner can SET permissions; GET is allowed for admins too
+if ($method !== 'GET' && $auth['role'] !== 'owner') {
+    Response::error('Access denied — owner only', 403);
+}
 
 $section = $_GET['section'] ?? '';
 
 // GET all users with their permissions
 if ($method === 'GET' && $section === 'users') {
     $users = $db->fetchAll(
-        "SELECT u.id, u.first_name||' '||u.last_name AS name, u.email, u.role, u.is_active
-         FROM users WHERE role IN ('admin','owner') ORDER BY u.created_at DESC"
+        "SELECT id, first_name||' '||last_name AS name, email, role, is_active
+         FROM users WHERE role IN ('admin','owner') ORDER BY created_at DESC"
     );
     foreach ($users as &$u) {
         $perms = $db->fetchAll("SELECT module, granted FROM user_permissions WHERE user_id=?", $u['id']);

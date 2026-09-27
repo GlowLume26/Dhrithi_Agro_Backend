@@ -110,29 +110,86 @@ class OtpHelper {
 
     public static function sendEmail(string $toEmail, string $otp): bool {
         if (!SMTP_USER || !SMTP_PASS) return false;
-        $subject = 'Your Drithi Agro OTP: ' . $otp;
-        $message = "Your OTP is: <b>$otp</b><br>Valid for " . OTP_EXPIRY_MINUTES . " minutes. Do not share.";
+
+        $subject  = 'Your Drithi Agro OTP: ' . $otp;
+        $htmlBody = '
+<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:30px;">
+<div style="max-width:480px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#1b5e20,#2e7d32);padding:28px 32px;text-align:center;">
+    <h1 style="color:white;margin:0;font-size:22px;font-weight:900;">&#127807; Drithi Agro</h1>
+    <p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">Farm to Future</p>
+  </div>
+  <div style="padding:32px;text-align:center;">
+    <p style="font-size:15px;color:#555;margin-bottom:24px;">Use the OTP below to verify your identity.</p>
+    <div style="background:#f0fdf4;border:2px dashed #2e7d32;border-radius:12px;padding:20px 32px;display:inline-block;margin-bottom:24px;">
+      <div style="font-size:38px;font-weight:900;letter-spacing:10px;color:#1b5e20;">' . $otp . '</div>
+    </div>
+    <p style="font-size:13px;color:#888;">Valid for <b>' . OTP_EXPIRY_MINUTES . ' minutes</b>. Do not share this OTP with anyone.</p>
+    <p style="font-size:12px;color:#aaa;margin-top:20px;">If you did not request this, please ignore this email.</p>
+  </div>
+  <div style="background:#f9fbe7;padding:16px 32px;text-align:center;border-top:1px solid #e8f5e9;">
+    <p style="font-size:11px;color:#aaa;margin:0;">&copy; 2025 Drithi Agro &middot; Made with &#10084; for Indian Farmers</p>
+  </div>
+</div>
+</body></html>';
+        $altBody  = 'Your Drithi Agro OTP is: ' . $otp . '. Valid for ' . OTP_EXPIRY_MINUTES . ' minutes. Do not share.';
+
+        // ── Try PHPMailer first (if Composer installed) ──
+        $autoload = __DIR__ . '/../vendor/autoload.php';
+        if (file_exists($autoload)) {
+            require_once $autoload;
+            $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+            try {
+                $mail->isSMTP();
+                $mail->Host       = SMTP_HOST;
+                $mail->SMTPAuth   = true;
+                $mail->Username   = SMTP_USER;
+                $mail->Password   = SMTP_PASS;
+                $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+                $mail->Port       = SMTP_PORT;
+                $mail->setFrom(SMTP_USER, SMTP_FROM_NAME);
+                $mail->addAddress($toEmail);
+                $mail->isHTML(true);
+                $mail->Subject = $subject;
+                $mail->Body    = $htmlBody;
+                $mail->AltBody = $altBody;
+                $mail->send();
+                return true;
+            } catch (\Exception $e) {
+                error_log('PHPMailer Error: ' . $mail->ErrorInfo);
+                // fall through to native SMTP below
+            }
+        }
+
+        // ── Native SMTP fallback (TLS STARTTLS on port 587) ──
+        $fp = @stream_socket_client('tcp://' . SMTP_HOST . ':' . SMTP_PORT, $errno, $errstr, 15);
+        if (!$fp) return false;
+        $read = fn() => fgets($fp, 515);
+        $write = fn($s) => fwrite($fp, $s . "\r\n");
+        $read(); // 220 greeting
+        $write('EHLO localhost'); while (($line = $read()) && $line[3] !== ' ') {}
+        $write('STARTTLS'); $read();
+        // Upgrade to TLS
+        if (!stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) { fclose($fp); return false; }
+        $write('EHLO localhost'); while (($line = $read()) && $line[3] !== ' ') {}
+        $write('AUTH LOGIN'); $read();
+        $write(base64_encode(SMTP_USER)); $read();
+        $write(base64_encode(SMTP_PASS)); $res = $read();
+        if (!str_starts_with($res, '235')) { fclose($fp); return false; }
+        $write('MAIL FROM:<' . SMTP_USER . '>'); $read();
+        $write('RCPT TO:<' . $toEmail . '>');    $read();
+        $write('DATA'); $read();
         $headers = implode("\r\n", [
-            'MIME-Version: 1.0',
-            'Content-type: text/html; charset=utf-8',
             'From: ' . SMTP_FROM_NAME . ' <' . SMTP_USER . '>',
+            'To: ' . $toEmail,
+            'Subject: ' . $subject,
+            'MIME-Version: 1.0',
+            'Content-Type: text/html; charset=utf-8',
         ]);
-        $fp = @fsockopen('ssl://' . SMTP_HOST, SMTP_PORT, $errno, $errstr, 10);
-        if (!$fp) return @mail($toEmail, $subject, $message, $headers);
-        fgets($fp, 515);
-        fwrite($fp, "EHLO localhost\r\n");      fgets($fp, 515);
-        fwrite($fp, "AUTH LOGIN\r\n");           fgets($fp, 515);
-        fwrite($fp, base64_encode(SMTP_USER) . "\r\n"); fgets($fp, 515);
-        fwrite($fp, base64_encode(SMTP_PASS) . "\r\n"); $res = fgets($fp, 515);
-        if (!str_contains($res, '235')) { fclose($fp); return false; }
-        fwrite($fp, "MAIL FROM:<" . SMTP_USER . ">\r\n");  fgets($fp, 515);
-        fwrite($fp, "RCPT TO:<$toEmail>\r\n");              fgets($fp, 515);
-        fwrite($fp, "DATA\r\n");                            fgets($fp, 515);
-        fwrite($fp, "Subject: $subject\r\nTo: $toEmail\r\n$headers\r\n\r\n$message\r\n.\r\n");
-        $res = fgets($fp, 515);
-        fwrite($fp, "QUIT\r\n");
-        fclose($fp);
-        return str_contains($res, '250');
+        $write($headers . "\r\n\r\n" . $htmlBody . "\r\n.");
+        $res = $read();
+        $write('QUIT'); fclose($fp);
+        return str_starts_with($res, '250');
     }
 }
 

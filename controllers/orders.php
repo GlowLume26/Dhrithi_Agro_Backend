@@ -168,8 +168,10 @@ if ($method === 'PUT' && $id) {
     $db->query("UPDATE orders SET order_status='cancelled' WHERE id=?", $id);
     $items = $db->fetchAll("SELECT product_id, quantity FROM order_items WHERE order_id=?", $id);
     foreach ($items as $item) {
-        $db->query("UPDATE products SET stock_qty=stock_qty+? WHERE id=?", $item['quantity'], $item['product_id']);
-        $db->query("UPDATE inventory SET current_stock=current_stock+? WHERE product_id=?", $item['quantity'], $item['product_id']);
+        $db->query("UPDATE products SET stock_qty=stock_qty+?, sold_count=GREATEST(0,sold_count-?), updated_at=NOW() WHERE id=?",
+            $item['quantity'], $item['quantity'], $item['product_id']);
+        $db->query("UPDATE inventory SET current_stock=current_stock+? WHERE product_id=?",
+            $item['quantity'], $item['product_id']);
     }
     $db->query("INSERT INTO order_status_history (id,order_id,status,remarks) VALUES (gen_random_uuid(),?,?,'Cancelled by customer')", $id, 'cancelled');
     $db->commit();

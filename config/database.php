@@ -1,39 +1,29 @@
 <?php
-// ── Load .env (only if file exists — Render injects env vars directly) ──
+// ── Load .env ──
 $envFile = __DIR__ . '/../.env';
 if (file_exists($envFile)) {
     foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-        if (str_starts_with(trim($line), '#') || !str_contains($line, '=')) continue;
+        $line = trim($line);
+        if (str_starts_with($line, '#') || !str_contains($line, '=')) continue;
         [$k, $v] = explode('=', $line, 2);
-        $key = trim($k); $val = trim($v);
-        if (!isset($_ENV[$key]) && getenv($key) === false) {
-            $_ENV[$key] = $val;
-            putenv("$key=$val");
-        }
+        $k = trim($k);
+        // Strip inline comments, but preserve spaces inside the value
+        $v = trim(explode(' #', $v)[0]);
+        $_ENV[$k] = $v;
+        putenv("$k=$v");
     }
 }
 
-// ── Support DATABASE_URL (Render standard) ───────────────────
-$dbUrl = $_ENV['DATABASE_URL'] ?? getenv('DATABASE_URL');
-if ($dbUrl) {
-    $p = parse_url($dbUrl);
-    define('DB_HOST', $p['host']);
-    define('DB_PORT', $p['port'] ?? 5432);
-    define('DB_USER', $p['user']);
-    define('DB_PASS', $p['pass']);
-    define('DB_NAME', ltrim($p['path'], '/'));
-} else {
-    define('DB_HOST', $_ENV['DB_HOST'] ?? getenv('DB_HOST') ?: 'localhost');
-    define('DB_PORT', $_ENV['DB_PORT'] ?? getenv('DB_PORT') ?: '5432');
-    define('DB_USER', $_ENV['DB_USER'] ?? getenv('DB_USER') ?: 'postgres');
-    define('DB_PASS', $_ENV['DB_PASS'] ?? getenv('DB_PASS') ?: '');
-    define('DB_NAME', $_ENV['DB_NAME'] ?? getenv('DB_NAME') ?: 'drithi_agro');
-}
+define('DB_HOST', $_ENV['DB_HOST'] ?? 'localhost');
+define('DB_PORT', $_ENV['DB_PORT'] ?? '5432');
+define('DB_USER', $_ENV['DB_USER'] ?? 'postgres');
+define('DB_PASS', $_ENV['DB_PASS'] ?? '');
+define('DB_NAME', $_ENV['DB_NAME'] ?? 'drithi_agro');
 
 define('JWT_SECRET',  $_ENV['JWT_SECRET']  ?? 'change-me');
 define('JWT_EXPIRY',  (int)($_ENV['JWT_EXPIRY'] ?? 86400));
 
-define('APP_URL',      $_ENV['APP_URL']      ?? 'http://localhost/drithi-agro/backend');
+define('APP_URL',      $_ENV['APP_URL']      ?? 'http://localhost/drithi-agro-backend');
 define('UPLOAD_PATH',  __DIR__ . '/../uploads/');
 define('UPLOAD_URL',   APP_URL . '/uploads/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024);
