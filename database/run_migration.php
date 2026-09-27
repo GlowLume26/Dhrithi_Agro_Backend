@@ -15,7 +15,12 @@ try {
     die("Connection failed: " . $e->getMessage() . "\n");
 }
 
-$sql = file_get_contents(__DIR__ . '/render_migration.sql');
+$files = ['schema_pg.sql', 'render_migration.sql', 'admin_seed.sql'];
+$sql = '';
+foreach ($files as $f) {
+    $path = __DIR__ . '/' . $f;
+    if (file_exists($path)) $sql .= file_get_contents($path) . "\n";
+}
 
 // Split on semicolons but keep $$ blocks intact
 $statements = [];
