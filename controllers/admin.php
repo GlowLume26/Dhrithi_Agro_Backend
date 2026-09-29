@@ -321,8 +321,8 @@ if ($method === 'GET' && $section === 'admins') {
          FROM users WHERE role IN ('admin','owner','superadmin') ORDER BY created_at DESC"
     );
     foreach ($admins as &$a) {
-        $perms = $db->fetchAll("SELECT module, granted FROM user_permissions WHERE user_id=?", $a['id']);
-        $a['permissions'] = $perms ? array_column($perms, 'granted', 'module') : null;
+        $perms = $db->fetchAll("SELECT module FROM user_permissions WHERE user_id=? AND granted=TRUE", $a['id']);
+        $a['permissions'] = array_column($perms, 'module');
     }
     Response::success('Admins fetched', $admins);
 }
