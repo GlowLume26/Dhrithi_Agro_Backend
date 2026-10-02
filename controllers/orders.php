@@ -1,7 +1,8 @@
 <?php
 set_exception_handler(function($e) {
+    error_log('Orders Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => $e->getMessage(), 'file' => basename($e->getFile()), 'line' => $e->getLine()]);
+    echo json_encode(['success' => false, 'message' => 'An unexpected error occurred']);
     exit;
 });
 set_error_handler(function($no, $str, $file, $line) {
@@ -103,6 +104,10 @@ if ($method === 'POST') {
             strtoupper(trim($body['coupon_code']))
         );
         if ($coupon && $subtotal >= $coupon['minimum_order_amount']) {
+            // Enforce usage limit
+            if ($coupon['usage_limit'] !== null && $coupon['used_count'] >= $coupon['usage_limit']) {
+                Response::error('Coupon usage limit reached');
+            }
             $discount = $coupon['discount_type'] === 'percentage'
                 ? min($subtotal * $coupon['discount_value'] / 100, $coupon['max_discount'] ?? PHP_INT_MAX)
                 : (float)$coupon['discount_value'];

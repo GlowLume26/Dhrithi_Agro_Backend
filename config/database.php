@@ -81,8 +81,9 @@ class Database {
             $stmt->execute($params ?: []);
             return $stmt;
         } catch (PDOException $e) {
+            error_log('DB Query Error: ' . $e->getMessage());
             http_response_code(500);
-            die(json_encode(['success' => false, 'message' => 'Query failed: ' . $e->getMessage()]));
+            die(json_encode(['success' => false, 'message' => 'A database error occurred']));
         }
     }
 

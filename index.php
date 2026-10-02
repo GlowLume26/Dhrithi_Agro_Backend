@@ -5,7 +5,17 @@
 // ============================================================
 
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
+
+// Restrict CORS to the configured frontend origin in production
+$allowedOrigin = getenv('FRONTEND_URL') ?: (getenv('APP_ENV') === 'production' ? '' : '*');
+if ($allowedOrigin === '*') {
+    header('Access-Control-Allow-Origin: *');
+} elseif ($allowedOrigin) {
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    if ($origin === $allowedOrigin) header('Access-Control-Allow-Origin: ' . $origin);
+} else {
+    header('Access-Control-Allow-Origin: *'); // fallback for local dev
+}
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 

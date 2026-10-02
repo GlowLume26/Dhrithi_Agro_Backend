@@ -1,19 +1,4 @@
 <?php
-// ====================================================================
-// DRITHI AGRO — CUSTOMER CONTROLLER (UPDATED)
-// File: backend/controllers/customer.php
-// ====================================================================
-
-// Force OPcache reset so Apache registers script updates immediately
-if (function_exists('opcache_reset')) {
-    opcache_reset();
-}
-
-// Disable browser caching for API calls
-header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
-header("Cache-Control: post-check=0, pre-check=0", false);
-header("Pragma: no-cache");
-
 require_once __DIR__ . '/../helpers/helpers.php';
 require_once __DIR__ . '/../middleware/auth.php';
 

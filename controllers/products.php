@@ -36,7 +36,8 @@ if ($method === 'GET' && !$id) {
     $whereStr = implode(' AND ', $where);
     $sql = "SELECT p.id, p.name, p.slug, p.mrp, p.selling_price, p.stock_qty, p.unit,
                    p.avg_rating, p.review_count, p.sold_count, p.is_featured,
-                   p.sku, p.product_code,
+                   p.sku, p.product_code, p.category_id,
+                   pc.id AS parent_category_id,
                    pc.name AS category_name,
                    c.name AS subcategory_name,
                    v.business_name AS vendor_name, pi.image_url AS primary_image
@@ -62,6 +63,7 @@ if ($method === 'GET' && $id) {
     if (!Validator::uuid($id)) Response::error('Invalid product ID', 400);
     $product = $db->fetchOne(
         "SELECT p.*,
+                pc.id AS parent_category_id,
                 pc.name AS category_name,
                 c.name AS subcategory_name,
                 pc.name AS parent_category_name,
