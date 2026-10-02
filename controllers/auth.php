@@ -155,7 +155,8 @@ if ($method === 'POST' && ($body['action'] ?? '') === 'admin_login') {
     if (!password_verify($password, $user['password_hash'])) Response::error('Invalid credentials', 401);
 
     $token = JWT::generate(['user_id' => $user['id'], 'mobile' => $user['mobile'], 'role' => $user['role']]);
-    $permissions = !empty($user['permissions']) ? json_decode($user['permissions'], true) : null;
+    $perms = $db->fetchAll("SELECT module, granted FROM user_permissions WHERE user_id=?", $user['id']);
+    $permissions = array_column($perms, 'granted', 'module');
     Response::success('Login successful', [
         'token' => $token,
         'user'  => [
