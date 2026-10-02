@@ -75,11 +75,13 @@ if ($method === 'PUT' && $id) {
     Response::success('Category updated');
 }
 
-// DELETE /categories?id=X — soft delete (admin required)
+// DELETE /categories?id=X — hard delete (admin required)
 if ($method === 'DELETE' && $id) {
     $auth = permissionMiddleware('categories');
     if (!Validator::uuid($id)) Response::error('Invalid category ID', 400);
-    $db->query("UPDATE categories SET is_active=FALSE WHERE id=?", $id);
+    // Remove subcategories first, then the category itself
+    $db->query("DELETE FROM categories WHERE parent_id=?", $id);
+    $db->query("DELETE FROM categories WHERE id=?", $id);
     Response::success('Category deleted');
 }
 
