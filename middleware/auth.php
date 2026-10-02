@@ -26,13 +26,22 @@ function adminMiddleware(): array {
 function permissionMiddleware(string $module): array {
     $payload = adminMiddleware();
     // owner has full access always
-    if ($payload['role'] === 'owner') return $payload;
+    if (in_array($payload['role'], ['owner', 'superadmin'])) return $payload;
     $db  = Database::getInstance();
     $row = $db->fetchOne(
         "SELECT granted FROM user_permissions WHERE user_id=? AND module=?",
         $payload['user_id'], $module
     );
-    if (!$row || !$row['granted']) Response::error('Access denied — no permission for ' . $module, 403);
+    // If no explicit DB row, fall back to role defaults
+    $roleDefaults = [
+        'admin' => ['dashboard','products','orders','customers','vendors','categories','inventory','offers','reports','settings','admins'],
+    ];
+    if (!$row) {
+        $defaults = $roleDefaults[$payload['role']] ?? [];
+        if (!in_array($module, $defaults)) Response::error('Access denied — no permission for ' . $module, 403);
+        return $payload;
+    }
+    if (!$row['granted']) Response::error('Access denied — no permission for ' . $module, 403);
     return $payload;
 }
 

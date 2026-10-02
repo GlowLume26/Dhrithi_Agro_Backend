@@ -7,14 +7,22 @@ $method = $_SERVER['REQUEST_METHOD'];
 $body   = json_decode(file_get_contents('php://input'), true) ?? [];
 $id     = $_GET['id'] ?? '';
 
-// GET /categories — list (no auth required for read)
+// GET /categories — list
 if ($method === 'GET') {
+    $isAdmin = false;
+    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+    if (!$auth && function_exists('getallheaders')) { $h = getallheaders(); $auth = $h['Authorization'] ?? $h['authorization'] ?? ''; }
+    if ($auth && str_starts_with($auth, 'Bearer ')) {
+        $tok = JWT::verify(substr($auth, 7));
+        if ($tok && in_array($tok['role'], ['admin','owner','superadmin'])) $isAdmin = true;
+    }
+    $activeFilter = $isAdmin ? '' : 'WHERE c.is_active=TRUE';
     $sql = isset($_GET['parent_only'])
-        ? "SELECT id, name, slug, icon, image_url, sort_order FROM categories WHERE is_active=TRUE AND parent_id IS NULL ORDER BY sort_order"
-        : "SELECT c.id, c.name, c.slug, c.icon, c.image_url, c.sort_order, c.parent_id, c.is_featured,
+        ? "SELECT id, name, slug, icon, image_url, sort_order FROM categories WHERE parent_id IS NULL ORDER BY sort_order"
+        : "SELECT c.id, c.name, c.slug, c.icon, c.image_url, c.sort_order, c.parent_id, c.is_featured, c.is_active,
                   p.name AS parent_name
            FROM categories c LEFT JOIN categories p ON c.parent_id=p.id
-           WHERE c.is_active=TRUE ORDER BY c.sort_order";
+           $activeFilter ORDER BY c.sort_order";
     Response::success('Categories fetched', $db->fetchAll($sql));
 }
 
@@ -50,16 +58,14 @@ if ($method === 'PUT' && $id) {
     if (!Validator::uuid($id)) Response::error('Invalid category ID', 400);
     
     $allowed = ['name', 'parent_id', 'icon', 'image_url', 'sort_order', 'is_featured', 'is_active'];
+    $bools   = ['is_featured', 'is_active'];
     $sets = []; $params = [];
     foreach ($allowed as $f) {
         if (array_key_exists($f, $body)) {
-            if ($f === 'parent_id') {
-                $sets[] = "$f=?";
-                $params[] = !empty($body[$f]) ? $body[$f] : null;
-            } else {
-                $sets[] = "$f=?";
-                $params[] = $body[$f];
-            }
+            $sets[] = "$f=?";
+            if ($f === 'parent_id')        $params[] = !empty($body[$f]) ? $body[$f] : null;
+            elseif (in_array($f, $bools))  $params[] = $body[$f] ? 'TRUE' : 'FALSE';
+            else                           $params[] = $body[$f];
         }
     }
     if (!$sets) Response::error('Nothing to update');
