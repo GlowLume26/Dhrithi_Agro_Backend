@@ -10,7 +10,7 @@ $auth   = authMiddleware();
 // Fetch customer details (joined with users table to fetch new profile columns)
 $customer = $db->fetchOne(
     "SELECT c.*, u.first_name, u.last_name, u.email, u.mobile,
-            u.gender, u.occupation, u.farm_size, u.primary_crop, u.dob
+            u.gender, u.occupation
      FROM customers c 
      JOIN users u ON c.user_id=u.id 
      WHERE c.user_id=?", 
@@ -46,7 +46,7 @@ if ($method === 'PUT' && $section === 'profile') {
     $db->begin();
     try {
         // Update profile fields on the Users Table
-        $userFields = ['first_name', 'last_name', 'email', 'mobile', 'gender', 'dob', 'occupation', 'farm_size', 'primary_crop'];
+        $userFields = ['first_name', 'last_name', 'email', 'mobile', 'gender', 'occupation'];
         
         // Split full name if passed
         if (isset($body['full_name'])) {
@@ -75,8 +75,6 @@ if ($method === 'PUT' && $section === 'profile') {
                 if ($val !== null && !in_array($val, ['male', 'female', 'other'])) {
                     Response::error('Invalid gender selection');
                 }
-            } elseif ($f === 'dob') {
-                $val = !empty($val) ? trim($val) : null;
             } else {
                 $val = ($val === '' || $val === null) ? null : trim($val);
             }
@@ -95,7 +93,7 @@ if ($method === 'PUT' && $section === 'profile') {
         // Fetch updated details to return to the frontend
         $updatedCustomer = $db->fetchOne(
             "SELECT c.*, u.first_name, u.last_name, u.email, u.mobile,
-                    u.gender, u.occupation, u.farm_size, u.primary_crop, u.dob
+                    u.gender, u.occupation
              FROM customers c 
              JOIN users u ON c.user_id=u.id 
              WHERE c.user_id=?", 
