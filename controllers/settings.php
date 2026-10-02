@@ -16,7 +16,7 @@ if ($method === 'GET') {
 
 // PUT /settings — admin only, bulk update
 if ($method === 'PUT') {
-    adminMiddleware();
+    permissionMiddleware('settings');
     if (empty($body)) Response::error('No settings provided');
     foreach ($body as $key => $value) {
         $db->query(

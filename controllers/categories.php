@@ -20,7 +20,7 @@ if ($method === 'GET') {
 
 // POST /categories — create (admin required)
 if ($method === 'POST') {
-    $auth = adminMiddleware();
+    $auth = permissionMiddleware('categories');
     $err = Validator::required($body, ['name']);
     if ($err) Response::error($err);
     
@@ -46,7 +46,7 @@ if ($method === 'POST') {
 
 // PUT /categories?id=X — update (admin required)
 if ($method === 'PUT' && $id) {
-    $auth = adminMiddleware();
+    $auth = permissionMiddleware('categories');
     if (!Validator::uuid($id)) Response::error('Invalid category ID', 400);
     
     $allowed = ['name', 'parent_id', 'icon', 'image_url', 'sort_order', 'is_featured', 'is_active'];
@@ -71,7 +71,7 @@ if ($method === 'PUT' && $id) {
 
 // DELETE /categories?id=X — soft delete (admin required)
 if ($method === 'DELETE' && $id) {
-    $auth = adminMiddleware();
+    $auth = permissionMiddleware('categories');
     if (!Validator::uuid($id)) Response::error('Invalid category ID', 400);
     $db->query("UPDATE categories SET is_active=FALSE WHERE id=?", $id);
     Response::success('Category deleted');

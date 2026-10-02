@@ -23,6 +23,19 @@ function adminMiddleware(): array {
     return $payload;
 }
 
+function permissionMiddleware(string $module): array {
+    $payload = adminMiddleware();
+    // owner has full access always
+    if ($payload['role'] === 'owner') return $payload;
+    $db  = Database::getInstance();
+    $row = $db->fetchOne(
+        "SELECT granted FROM user_permissions WHERE user_id=? AND module=?",
+        $payload['user_id'], $module
+    );
+    if (!$row || !$row['granted']) Response::error('Access denied — no permission for ' . $module, 403);
+    return $payload;
+}
+
 function vendorMiddleware(): array {
     $payload = authMiddleware();
     if (!in_array($payload['role'], ['vendor', 'admin'])) Response::error('Forbidden — vendor access required', 403);

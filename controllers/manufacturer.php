@@ -8,10 +8,7 @@ $body   = json_decode(file_get_contents('php://input'), true) ?? [];
 $auth   = adminMiddleware();
 
 // Permission check
-if ($auth['role'] !== 'owner') {
-    $perm = $db->fetchOne("SELECT granted FROM user_permissions WHERE user_id=? AND module='manufacturer_orders'", $auth['user_id']);
-    if (!$perm || !$perm['granted']) Response::error('Access denied', 403);
-}
+permissionMiddleware('manufacturer_orders');
 
 $section = $_GET['section'] ?? '';
 $PAGE    = 20;

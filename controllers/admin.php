@@ -14,6 +14,7 @@ $INVENTORY_LIMIT = 100;
 
 // GET dashboard
 if ($method === 'GET' && $section === 'dashboard') {
+    permissionMiddleware('dashboard');
     $stats = $db->fetchOne(
         "SELECT
             (SELECT COUNT(*) FROM customers)                                   AS total_customers,
@@ -45,6 +46,7 @@ if ($method === 'GET' && $section === 'dashboard') {
 
 // GET vendors
 if ($method === 'GET' && $section === 'vendors') {
+    permissionMiddleware('vendors');
     $status = strtolower($_GET['status'] ?? 'pending');
     $page   = max(1, (int)($_GET['page'] ?? 1));
     $offset = ($page - 1) * $PAGE_LIMIT;
@@ -69,6 +71,7 @@ if ($method === 'GET' && $section === 'vendors') {
 
 // PUT approve vendor
 if ($method === 'PUT' && $action === 'approve') {
+    permissionMiddleware('vendors');
     $vendorId = $_GET['id'] ?? '';
     if (!$vendorId || !Validator::uuid($vendorId)) Response::error('Valid Vendor ID required');
     $vendor = $db->fetchOne("SELECT * FROM vendors WHERE id=? AND status='pending'", $vendorId);
@@ -85,6 +88,7 @@ if ($method === 'PUT' && $action === 'approve') {
 
 // PUT reject vendor
 if ($method === 'PUT' && $action === 'reject') {
+    permissionMiddleware('vendors');
     $vendorId = $_GET['id'] ?? '';
     $reason   = trim($body['reason'] ?? '');
     if (!$vendorId || !$reason) Response::error('Vendor ID and reason required');
@@ -100,6 +104,7 @@ if ($method === 'PUT' && $action === 'reject') {
 
 // GET orders
 if ($method === 'GET' && $section === 'orders') {
+    permissionMiddleware('orders');
     try {
         $page   = max(1, (int)($_GET['page'] ?? 1));
         $offset = ($page - 1) * $PAGE_LIMIT;
@@ -177,6 +182,7 @@ if ($method === 'GET' && $section === 'orders') {
 
 // PUT update order status
 if ($method === 'PUT' && $section === 'orders') {
+    permissionMiddleware('orders');
     $orderId = $_GET['id'] ?? '';
     if (!$orderId || !Validator::uuid($orderId)) Response::error('Valid Order ID required');
     $status  = strtolower($body['status'] ?? '');
@@ -206,6 +212,7 @@ if ($method === 'PUT' && $section === 'orders') {
 
 // GET customers
 if ($method === 'GET' && $section === 'customers') {
+    permissionMiddleware('customers');
     $page   = max(1, (int)($_GET['page'] ?? 1));
     $offset = ($page - 1) * $PAGE_LIMIT;
     $search = trim($_GET['search'] ?? '');
@@ -244,6 +251,7 @@ if ($method === 'GET' && $section === 'customers') {
 
 // GET inventory
 if ($method === 'GET' && $section === 'inventory') {
+    permissionMiddleware('inventory');
     $search = trim($_GET['search'] ?? '');
     $params = [];
     $extraWhere = '';
@@ -262,6 +270,7 @@ if ($method === 'GET' && $section === 'inventory') {
 
 // PUT restock
 if ($method === 'PUT' && $section === 'inventory') {
+    permissionMiddleware('inventory');
     $productId = $_GET['id'] ?? '';
     if (!$productId || !Validator::uuid($productId)) Response::error('Valid Product ID required');
     $qty = (int)($body['qty'] ?? 0);
@@ -273,12 +282,14 @@ if ($method === 'PUT' && $section === 'inventory') {
 
 // GET offers
 if ($method === 'GET' && $section === 'offers') {
+    permissionMiddleware('offers');
     $offers = $db->fetchAll("SELECT * FROM banners ORDER BY created_at DESC");
     Response::success('Offers fetched', $offers);
 }
 
 // POST create offer
 if ($method === 'POST' && $section === 'offers') {
+    permissionMiddleware('offers');
     $err = Validator::required($body, ['name']);
     if ($err) Response::error($err);
     $id = $db->fetchOne("SELECT gen_random_uuid() AS id")['id'];
@@ -293,6 +304,7 @@ if ($method === 'POST' && $section === 'offers') {
 
 // PUT update offer
 if ($method === 'PUT' && $section === 'offers') {
+    permissionMiddleware('offers');
     $offerId = $_GET['id'] ?? '';
     if (!$offerId || !Validator::uuid($offerId)) Response::error('Valid Offer ID required');
     $map = ['name'=>'title','image'=>'image_url','is_active'=>'is_active'];
@@ -308,6 +320,7 @@ if ($method === 'PUT' && $section === 'offers') {
 
 // DELETE offer
 if ($method === 'DELETE' && $section === 'offers') {
+    permissionMiddleware('offers');
     $offerId = $_GET['id'] ?? '';
     if (!$offerId || !Validator::uuid($offerId)) Response::error('Valid Offer ID required');
     $db->query("DELETE FROM banners WHERE id=?", $offerId);
@@ -316,6 +329,7 @@ if ($method === 'DELETE' && $section === 'offers') {
 
 // GET admin users
 if ($method === 'GET' && $section === 'admins') {
+    permissionMiddleware('admins');
     $admins = $db->fetchAll(
         "SELECT id, first_name||' '||last_name AS name, email, role, is_active, created_at
          FROM users WHERE role IN ('admin','owner','superadmin') ORDER BY created_at DESC"
@@ -329,6 +343,7 @@ if ($method === 'GET' && $section === 'admins') {
 
 // POST create admin
 if ($method === 'POST' && $section === 'admins') {
+    permissionMiddleware('admins');
     $err = Validator::required($body, ['name','email','password','role']);
     if ($err) Response::error($err);
     if (!in_array($body['role'], ['admin','owner'])) Response::error('Invalid role');
@@ -346,6 +361,7 @@ if ($method === 'POST' && $section === 'admins') {
 
 // PUT update admin
 if ($method === 'PUT' && $section === 'admins') {
+    permissionMiddleware('admins');
     $adminId = $_GET['id'] ?? '';
     if (!$adminId || !Validator::uuid($adminId)) Response::error('Valid Admin ID required');
     $sets = []; $params = [];
@@ -366,6 +382,7 @@ if ($method === 'PUT' && $section === 'admins') {
 
 // DELETE admin
 if ($method === 'DELETE' && $section === 'admins') {
+    permissionMiddleware('admins');
     $adminId = $_GET['id'] ?? '';
     if (!$adminId || !Validator::uuid($adminId)) Response::error('Valid Admin ID required');
     $db->query("DELETE FROM users WHERE id=? AND role IN ('admin','owner')", $adminId);
@@ -374,6 +391,7 @@ if ($method === 'DELETE' && $section === 'admins') {
 
 // GET reports
 if ($method === 'GET' && $section === 'reports') {
+    permissionMiddleware('reports');
     $monthly = $db->fetchAll(
         "SELECT TO_CHAR(created_at,'Mon') AS m, TO_CHAR(created_at,'YYYY-MM') AS ym,
                 SUM(final_amount) AS rev, COUNT(*) AS orders
@@ -402,6 +420,7 @@ if ($method === 'GET' && $section === 'reports') {
 
 // PUT toggle customer active status
 if ($method === 'PUT' && $section === 'customers') {
+    permissionMiddleware('customers');
     $customerId = $_GET['id'] ?? '';
     if (!$customerId || !Validator::uuid($customerId)) Response::error('Valid Customer ID required');
     $is_active = !empty($body['is_active']) ? 'TRUE' : 'FALSE';
@@ -413,6 +432,7 @@ if ($method === 'PUT' && $section === 'customers') {
 
 // DELETE customer
 if ($method === 'DELETE' && $section === 'customers') {
+    permissionMiddleware('customers');
     $customerId = $_GET['id'] ?? '';
     if (!$customerId || !Validator::uuid($customerId)) Response::error('Valid Customer ID required');
     $customer = $db->fetchOne("SELECT user_id FROM customers WHERE id=?", $customerId);
