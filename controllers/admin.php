@@ -213,40 +213,50 @@ if ($method === 'PUT' && $section === 'orders') {
 // GET customers
 if ($method === 'GET' && $section === 'customers') {
     permissionMiddleware('customers');
+    $limit  = min(100, max(1, (int)($_GET['limit'] ?? $PAGE_LIMIT)));
     $page   = max(1, (int)($_GET['page'] ?? 1));
-    $offset = ($page - 1) * $PAGE_LIMIT;
+    $offset = ($page - 1) * $limit;
     $search = trim($_GET['search'] ?? '');
     $city   = trim($_GET['city'] ?? '');
+    $state  = trim($_GET['state'] ?? '');
     $where = []; $params = [];
     if ($search) {
         $where[]     = "(u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.email ILIKE ? OR u.mobile ILIKE ? OR ca.city ILIKE ? OR ca.state ILIKE ? OR c.customer_code ILIKE ?)";
         $s           = "%$search%";
         $params      = array_merge($params, [$s,$s,$s,$s,$s,$s,$s]);
     }
-    if ($city) {
-        $where[] = 'ca.city ILIKE ?';
-        $params[] = "%$city%";
-    }
+    if ($city)  { $where[] = 'ca.city ILIKE ?';  $params[] = "%$city%"; }
+    if ($state) { $where[] = 'ca.state ILIKE ?'; $params[] = "%$state%"; }
     $whereStr = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     $total = ($db->fetchOne(
         "SELECT COUNT(DISTINCT c.id) AS total
          FROM customers c
          JOIN users u ON c.user_id=u.id
-         LEFT JOIN customer_addresses ca ON ca.customer_id=c.id AND ca.is_default=TRUE
+         LEFT JOIN customer_addresses ca ON ca.customer_id=c.id
          $whereStr", ...$params
     ))['total'] ?? 0;
     $customers = $db->fetchAll(
-        "SELECT c.id, c.customer_code, c.total_orders, c.total_spent, c.loyalty_points, c.created_at,
+        "SELECT DISTINCT ON (c.id) c.id,
+                COALESCE(c.customer_code, 'CUS-' || UPPER(SUBSTRING(c.id::text, 1, 8))) AS customer_code,
+                c.total_orders, c.total_spent, c.loyalty_points, c.created_at,
                 u.first_name, u.last_name, u.email, u.mobile, u.is_active,
-                ca.city, ca.state
+                ca.address_line1, ca.address_line2, ca.city, ca.state, ca.pincode, ca.mobile AS addr_mobile
          FROM customers c
          JOIN users u ON c.user_id=u.id
-         LEFT JOIN customer_addresses ca ON ca.customer_id=c.id AND ca.is_default=TRUE
+         LEFT JOIN customer_addresses ca ON ca.customer_id=c.id
          $whereStr
-         ORDER BY c.created_at DESC LIMIT $PAGE_LIMIT OFFSET $offset",
+         ORDER BY c.id, ca.is_default DESC NULLS LAST, ca.created_at DESC
+         LIMIT $limit OFFSET $offset",
         ...$params
     );
-    Response::json(['success' => true, 'data' => $customers, 'meta' => ['total' => (int)$total, 'page' => $page, 'limit' => $PAGE_LIMIT, 'pages' => (int)ceil($total / $PAGE_LIMIT)]]);
+    // backfill customer_code for any that are still null in DB
+    foreach ($customers as &$c) {
+        if (empty($c['customer_code'])) {
+            $c['customer_code'] = 'CUS-' . strtoupper(substr($c['id'], 0, 8));
+            $db->query("UPDATE customers SET customer_code=? WHERE id=? AND customer_code IS NULL", $c['customer_code'], $c['id']);
+        }
+    }
+    Response::json(['success' => true, 'data' => $customers, 'meta' => ['total' => (int)$total, 'page' => $page, 'limit' => $limit, 'pages' => (int)ceil($total / $limit)]]);
 }
 
 // GET inventory
