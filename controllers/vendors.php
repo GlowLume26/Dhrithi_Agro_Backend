@@ -18,12 +18,28 @@ if ($method === 'GET' && !$action) {
 
 // POST /vendors?action=register
 if ($method === 'POST' && $action === 'register') {
-    $err = Validator::required($body, ['business_name','owner_name','mobile','email','gst_number','pan_number','address','city','state','pincode']);
+    // Read from $_POST (multipart/form-data)
+    $data = $_POST;
+    $vendorType = $data['vendor_type'] ?? 'seller'; // 'buyer' or 'seller'
+    $isBuyer    = ($vendorType === 'buyer');
+
+    // Validate required fields
+    $required = ['owner_name', 'mobile', 'address', 'city', 'state', 'pincode'];
+    if (!$isBuyer) {
+        $required = array_merge($required, ['business_name']);
+    }
+    $err = Validator::required($data, $required);
     if ($err) Response::error($err);
-    if (!Validator::mobile($body['mobile'])) Response::error('Invalid mobile number');
-    if (!Validator::email($body['email']))   Response::error('Invalid email address');
-    if ($db->fetchOne("SELECT id FROM users WHERE email=?", $body['email'])) Response::error('Email already registered');
-    if ($db->fetchOne("SELECT id FROM vendors WHERE gst_number=?", $body['gst_number'])) Response::error('GST number already registered');
+    if (!Validator::mobile($data['mobile'])) Response::error('Invalid mobile number');
+    if (!empty($data['email']) && !Validator::email($data['email'])) Response::error('Invalid email address');
+
+    // Check duplicate mobile
+    if ($db->fetchOne("SELECT id FROM users WHERE mobile=?", $data['mobile'])) Response::error('Mobile number already registered');
+    if (!empty($data['email']) && $db->fetchOne("SELECT id FROM users WHERE email=?", $data['email'])) Response::error('Email already registered');
+    if (!$isBuyer && !empty($data['gst_number']) && $db->fetchOne("SELECT id FROM vendors WHERE gst_number=?", $data['gst_number'])) Response::error('GST number already registered');
+
+    $businessName = $isBuyer ? ($data['owner_name'] . ' (Buyer)') : $data['business_name'];
+    $email        = !empty($data['email']) ? $data['email'] : null;
 
     $db->begin();
     try {
@@ -31,16 +47,21 @@ if ($method === 'POST' && $action === 'register') {
         $vendorId = $db->fetchOne("SELECT gen_random_uuid() AS id")['id'];
         $db->query(
             "INSERT INTO users (id,first_name,last_name,email,mobile,password_hash,role,is_active) VALUES (?,?,?,?,?,?,'vendor',FALSE)",
-            $userId, $body['owner_name'], '', $body['email'], $body['mobile'], password_hash(uniqid('', true), PASSWORD_DEFAULT)
+            $userId, $data['owner_name'], '', $email, $data['mobile'], password_hash(uniqid('', true), PASSWORD_DEFAULT)
         );
         $db->query(
-            "INSERT INTO vendors (id,user_id,business_name,owner_name,email,mobile,gst_number,pan_number,address,city,state,pincode,status)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
-            $vendorId, $userId, $body['business_name'], $body['owner_name'],
-            $body['email'], $body['mobile'], $body['gst_number'], $body['pan_number'],
-            $body['address'], $body['city'], $body['state'], $body['pincode']
+            "INSERT INTO vendors (id,user_id,business_name,owner_name,email,mobile,gst_number,pan_number,address,city,state,pincode,vendor_type,is_cnf,status)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
+            $vendorId, $userId, $businessName, $data['owner_name'],
+            $email, $data['mobile'],
+            !empty($data['gst_number']) ? $data['gst_number'] : null,
+            !empty($data['pan_number']) ? $data['pan_number'] : null,
+            $data['address'], $data['city'], $data['state'], $data['pincode'],
+            $vendorType, !empty($data['is_cnf']) ? 'TRUE' : 'FALSE'
         );
-        foreach (['aadhaar'=>'AADHAAR','pan'=>'PAN','gst'=>'GST_CERTIFICATE','logo'=>'BUSINESS_LOGO'] as $key=>$type) {
+        // Save uploaded documents
+        $docMap = ['aadhaar'=>'AADHAAR','pan'=>'PAN','gst_doc'=>'GST_CERTIFICATE','licence'=>'TRADE_LICENCE','reg'=>'BUSINESS_REG','bank'=>'BANK_PASSBOOK','logo'=>'BUSINESS_LOGO'];
+        foreach ($docMap as $key => $type) {
             if (!empty($_FILES[$key]) && $_FILES[$key]['error'] === 0) {
                 try {
                     $url = FileUpload::upload($_FILES[$key], 'vendor-docs');
@@ -51,11 +72,10 @@ if ($method === 'POST' && $action === 'register') {
         $db->commit();
     } catch (Exception $e) {
         $db->rollback();
-        Response::error('Registration failed. Please try again.', 500);
+        Response::error('Registration failed: ' . $e->getMessage(), 500);
     }
-    Response::success('Vendor application submitted. Pending admin approval.', [
-        'application_ref' => 'VR-' . date('Y') . '-' . strtoupper(substr($vendorId, 0, 8))
-    ], 201);
+    $appRef = ($isBuyer ? 'BR' : 'VR') . '-' . date('Y') . '-' . strtoupper(substr($vendorId, 0, 8));
+    Response::success('Application submitted. Pending admin approval.', ['application_ref' => $appRef], 201);
 }
 
 // GET /vendors?action=dashboard
